@@ -26,6 +26,7 @@ from arc_harness import (
     HeuristicAgent,
     HookDecision,
     HookMatcher,
+    KagglePackage,
     JsonPolicyModel,
     MemoryPolicy,
     ModelBackedAgent,
@@ -36,6 +37,7 @@ from arc_harness import (
     RunnerConfig,
     RuleLearningAgent,
     SubAgentResult,
+    build_kaggle_package,
     build_submission_manifest,
     check_kaggle_readiness,
 )
@@ -514,6 +516,16 @@ class HarnessTests(unittest.TestCase):
         submission = [check for check in report.checks if check.name == "submission_functions"][0]
         self.assertTrue(submission.ok)
         self.assertIn("arc_harness/submission.py", build_submission_manifest("arc_harness"))
+
+    def test_build_kaggle_package_copies_manifest_and_submission(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = build_kaggle_package(Path(tmp) / "bundle")
+            self.assertIsInstance(package, KagglePackage)
+            output = Path(package.output_dir)
+            self.assertTrue((output / "arc_harness" / "submission.py").exists())
+            self.assertTrue((output / "submission.py").exists())
+            self.assertTrue(Path(package.manifest_path).exists())
+            self.assertIn("arc_harness/kaggle.py", package.files)
 
 
 if __name__ == "__main__":

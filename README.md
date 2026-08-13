@@ -159,6 +159,15 @@ from arc_harness.submission import choose_action, is_done
 # ARC_HARNESS_POLICY=/kaggle/input/my-policy/policy.json
 ```
 
+Build a Kaggle-ready folder:
+
+```bash
+python3 scripts/build_kaggle_package.py /tmp/arc-harness-kaggle
+```
+
+The folder contains `arc_harness/`, a top-level `submission.py`, helper scripts,
+and `manifest.json`.
+
 Check the copied package before submitting:
 
 ```bash

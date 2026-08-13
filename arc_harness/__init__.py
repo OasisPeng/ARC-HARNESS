@@ -1,6 +1,6 @@
 """Lightweight ARC-AGI-3-style agent harness."""
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 from .actions import Action, ActionType, Frame, StepRecord
 from .agent import ArcAgent, DelegatingPlannerAgent, HandoffAgent, HeuristicAgent, RuleLearningAgent
@@ -32,7 +32,7 @@ from .guardrails import (
     ResultGuardrail,
 )
 from .hooks import ActionBudgetHook, Hook, HookManager, HookMatcher, JsonlTraceHook
-from .kaggle import KaggleReadinessReport, ReadinessCheck, build_submission_manifest, check_kaggle_readiness
+from .kaggle import KagglePackage, KaggleReadinessReport, ReadinessCheck, build_kaggle_package, build_submission_manifest, check_kaggle_readiness
 from .loop import EpisodeResult, EpisodeRunner
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
@@ -118,6 +118,7 @@ __all__ = [
     "HookMatcher",
     "HookManager",
     "JsonlTraceHook",
+    "KagglePackage",
     "KaggleReadinessReport",
     "MemoryEntry",
     "MemoryManager",
@@ -155,6 +156,7 @@ __all__ = [
     "ValidationError",
     "WorkingMemory",
     "build_agent_from_model_config",
+    "build_kaggle_package",
     "build_submission_manifest",
     "check_kaggle_readiness",
     "coerce_official_frame",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -77,9 +79,65 @@ class KaggleReadinessReport:
         }
 
 
+@dataclass(frozen=True)
+class KagglePackage:
+    output_dir: str
+    files: list[str]
+    submission_path: str
+    manifest_path: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "output_dir": self.output_dir,
+            "files": self.files,
+            "submission_path": self.submission_path,
+            "manifest_path": self.manifest_path,
+        }
+
+
 def build_submission_manifest(package_root: str | Path = "arc_harness") -> list[str]:
     root = Path(package_root)
     return [str(root / name) for name in CORE_PACKAGE_FILES]
+
+
+def build_kaggle_package(
+    output_dir: str | Path,
+    *,
+    package_root: str | Path = "arc_harness",
+    include_scripts: bool = True,
+) -> KagglePackage:
+    """Copy the harness into a Kaggle-ready directory.
+
+    The output is deliberately plain files and folders, so it can be uploaded as
+    a Kaggle Dataset or copied into a Notebook without a build step.
+    """
+
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    package_root = Path(package_root)
+    files: list[str] = []
+    for source_text in build_submission_manifest(package_root):
+        source = Path(source_text)
+        target = output / source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        files.append(str(target.relative_to(output)))
+
+    submission_path = output / "submission.py"
+    submission_path.write_text(_submission_template(), encoding="utf-8")
+    files.append(str(submission_path.relative_to(output)))
+
+    if include_scripts:
+        script_source = Path("scripts") / "check_kaggle_readiness.py"
+        if script_source.exists():
+            script_target = output / script_source
+            script_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(script_source, script_target)
+            files.append(str(script_target.relative_to(output)))
+
+    manifest_path = output / "manifest.json"
+    manifest_path.write_text(json.dumps({"files": files}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return KagglePackage(str(output), files, str(submission_path), str(manifest_path))
 
 
 def check_kaggle_readiness(
@@ -144,3 +202,14 @@ def _check_submission_functions(agent: ArcAgent) -> ReadinessCheck:
         return ReadinessCheck("submission_functions", True, "choose_action/is_done smoke test passed", {"action": action, "done": done})
     except Exception as exc:
         return ReadinessCheck("submission_functions", False, f"submission smoke test failed: {exc}")
+
+
+def _submission_template() -> str:
+    return '''"""Kaggle ARC-AGI-3 submission entrypoint.
+
+Upload this file next to the `arc_harness/` package directory, then expose
+`is_done` and `choose_action` to the competition runtime.
+"""
+
+from arc_harness.submission import choose_action, is_done
+'''
