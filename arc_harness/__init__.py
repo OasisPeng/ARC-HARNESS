@@ -3,11 +3,21 @@
 __version__ = "0.1.0"
 
 from .actions import Action, ActionType, Frame, StepRecord
-from .agent import ArcAgent, HeuristicAgent, RuleLearningAgent
+from .agent import ArcAgent, DelegatingPlannerAgent, HandoffAgent, HeuristicAgent, RuleLearningAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
 from .context import ContextBudget, ContextBundle, ContextInjector, ContextManager, ContextRole, ContextSection
-from .delegation import DelegationConfig, DelegationError, DelegationManager, SubAgent, SubAgentResult, SubTask
+from .delegation import (
+    DelegationConfig,
+    DelegationError,
+    DelegationManager,
+    HandoffController,
+    HandoffRecord,
+    HandoffRule,
+    SubAgent,
+    SubAgentResult,
+    SubTask,
+)
 from .environment import ArcEnvironment, EnvironmentResult, validate_environment
 from .errors import ErrorContext, HarnessError, ValidationError
 from .evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner
@@ -52,6 +62,7 @@ __all__ = [
     "DurableMemory",
     "AgentEvent",
     "Decision",
+    "DelegatingPlannerAgent",
     "DelegationConfig",
     "DelegationError",
     "DelegationManager",
@@ -70,6 +81,10 @@ __all__ = [
     "GuardrailDecision",
     "GuardrailResult",
     "HarnessError",
+    "HandoffAgent",
+    "HandoffController",
+    "HandoffRecord",
+    "HandoffRule",
     "HeuristicAgent",
     "HookDecision",
     "Hook",

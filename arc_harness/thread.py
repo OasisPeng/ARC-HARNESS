@@ -18,7 +18,7 @@ from .events import AgentEvent, utc_now
 from .hooks import Hook, HookManager
 from .loop import EpisodeResult, EpisodeRunner
 from .memory import DurableMemory, MemoryManager
-from .tracing import TraceStore
+from .tracing import Trace, TraceStore
 
 
 @dataclass
@@ -44,6 +44,8 @@ class ArcThread:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.memory = MemoryManager(DurableMemory(self.root / "memory"))
         self.delegation_events: list[dict] = []
+        self.delegation_trace = Trace("ARC delegation", group_id=self.thread_id, metadata={"thread_id": self.thread_id})
+        self._delegation_spans = {}
         self.delegation = self.delegation or DelegationManager.with_default_subagents()
         self.delegation.set_event_sink(self._on_delegation_event)
         self.history: list[dict] = []
@@ -206,10 +208,37 @@ class ArcThread:
     def read_delegation_events(self) -> list[dict]:
         return list(self.delegation_events)
 
+    def read_delegation_trace(self) -> dict:
+        return TraceStore(self.root / "traces").read(self.delegation_trace.trace_id)
+
     def _on_delegation_event(self, event: AgentEvent) -> None:
         payload = event.to_dict()
         payload["thread_id"] = self.thread_id
         self.delegation_events.append(payload)
+        task = payload.get("payload", {}).get("task", {})
+        task_id = task.get("task_id")
+        if not task_id:
+            return
+        if event.type == "subtask.started":
+            self._delegation_spans[task_id] = self.delegation_trace.start_span(
+                f"subagent.{task.get('kind')}",
+                metadata={
+                    "task_id": task_id,
+                    "kind": task.get("kind"),
+                    "agent_name": payload.get("payload", {}).get("agent_name"),
+                    "budget": task.get("budget"),
+                    "metadata": task.get("metadata", {}),
+                },
+            )
+            return
+        if event.type in {"subtask.completed", "subtask.failed"}:
+            span = self._delegation_spans.pop(task_id, None)
+            if span is not None:
+                span.finish({"event": event.type, **payload.get("payload", {})})
+            self.delegation_trace.finish({"last_event": event.type, "event_count": len(self.delegation_events)})
+            store = TraceStore(self.root / "traces")
+            store.write(self.delegation_trace)
+            store.append_jsonl(self.delegation_trace)
 
     def _save_state(self) -> None:
         self.updated_at = utc_now()
@@ -220,5 +249,6 @@ class ArcThread:
             "metadata": self.metadata,
             "history": self.history,
             "delegation_events": self.delegation_events[-500:],
+            "delegation_trace_id": self.delegation_trace.trace_id,
         }
         self.state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

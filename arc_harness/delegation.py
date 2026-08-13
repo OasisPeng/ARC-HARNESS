@@ -80,6 +80,7 @@ class DelegationError(RuntimeError):
     """Raised when a subtask cannot be dispatched or completed."""
 
 
+HandoffPredicate = Callable[[dict[str, Any], MemoryManager], bool]
 EventSink = Callable[[AgentEvent], None]
 
 
@@ -341,3 +342,75 @@ class DelegationManager:
             importance=0.55 if result.ok else 0.75,
             metadata=result.to_dict(),
         )
+
+
+@dataclass(frozen=True)
+class HandoffRule:
+    """Route control to another agent when a state predicate matches."""
+
+    target: str
+    reason: str
+    predicate: HandoffPredicate
+    return_to_primary_on_done: bool = False
+
+    def matches(self, state: dict[str, Any], memory: MemoryManager) -> bool:
+        return self.predicate(state, memory)
+
+
+@dataclass(frozen=True)
+class HandoffRecord:
+    """A traceable control-transfer event."""
+
+    from_agent: str
+    to_agent: str
+    reason: str
+    step: int
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "from_agent": self.from_agent,
+            "to_agent": self.to_agent,
+            "reason": self.reason,
+            "step": self.step,
+            "metadata": self.metadata,
+        }
+
+
+class HandoffController:
+    """Stateful router for agent takeover inside one episode."""
+
+    def __init__(self, primary_name: str, rules: Iterable[HandoffRule] | None = None) -> None:
+        self.primary_name = primary_name
+        self.active_name = primary_name
+        self.rules = list(rules or [])
+        self.records: list[HandoffRecord] = []
+
+    def reset(self) -> None:
+        self.active_name = self.primary_name
+        self.records.clear()
+
+    def choose_active(self, state: dict[str, Any], memory: MemoryManager) -> HandoffRecord | None:
+        for rule in self.rules:
+            if rule.target == self.active_name:
+                continue
+            if rule.matches(state, memory):
+                record = HandoffRecord(
+                    from_agent=self.active_name,
+                    to_agent=rule.target,
+                    reason=rule.reason,
+                    step=int(state.get("step", 0)),
+                    metadata={"return_to_primary_on_done": rule.return_to_primary_on_done},
+                )
+                self.active_name = rule.target
+                self.records.append(record)
+                memory.add_note(f"Handoff {record.from_agent} -> {record.to_agent}: {record.reason}")
+                return record
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "primary_name": self.primary_name,
+            "active_name": self.active_name,
+            "records": [record.to_dict() for record in self.records],
+        }

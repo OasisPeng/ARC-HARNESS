@@ -12,12 +12,15 @@ from arc_harness import (
     ContextBudget,
     ContextManager,
     CoordinateBoundsGuardrail,
+    DelegatingPlannerAgent,
     DelegationConfig,
     DelegationManager,
     EnvironmentResult,
     EvalCase,
     EvaluationRunner,
     Frame,
+    HandoffAgent,
+    HandoffRule,
     HeuristicAgent,
     HookDecision,
     HookMatcher,
@@ -56,6 +59,11 @@ class BadActionAgent(HeuristicAgent):
 class OutOfBoundsAgent(HeuristicAgent):
     def choose_action(self, frames, latest_frame, memory):
         return Action(ActionType.ACTION6, (99, 99))
+
+
+class TargetAgent(HeuristicAgent):
+    def choose_action(self, frames, latest_frame, memory):
+        return Action(ActionType.ACTION6, (1, 0))
 
 
 class CountingHook:
@@ -339,6 +347,46 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(result.agent_name, "PlannerSubAgent")
             self.assertEqual(result.output["stop_reason"], "plan_ready")
             self.assertEqual(result.output["plan"][0]["action"]["xy"], (1, 0))
+
+    def test_delegation_trace_records_subagent_spans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            thread.delegate("perceive", {"frame": Frame.from_grid([[1, 0], [0, 2]])})
+            trace = thread.read_delegation_trace()
+            self.assertEqual(trace["workflow_name"], "ARC delegation")
+            self.assertEqual(trace["group_id"], thread.thread_id)
+            self.assertEqual(trace["spans"][0]["name"], "subagent.perceive")
+            self.assertEqual(trace["spans"][0]["metadata"]["event"], "subtask.completed")
+
+    def test_delegating_planner_agent_closes_loop_with_subagents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            delegation = DelegationManager.with_default_subagents(config=DelegationConfig(parallel_workers=2))
+            agent = DelegatingPlannerAgent(delegation=delegation)
+            thread = ArcThread(memory_dir=tmp, delegation=delegation)
+            result = thread.run_episode(TinyEnv(), agent, config=RunnerConfig(max_steps=4))
+            self.assertTrue(result.done)
+            self.assertEqual(result.status, "WIN")
+            self.assertGreaterEqual(len(delegation.events), 3)
+
+    def test_handoff_agent_transfers_control_to_specialist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rule = HandoffRule(
+                target="target",
+                reason="use specialist after the first miss",
+                predicate=lambda state, memory: state["step"] >= 1,
+            )
+            agent = HandoffAgent(
+                primary=HeuristicAgent(actions=[ActionType.ACTION1]),
+                specialists={"target": TargetAgent()},
+                rules=[rule],
+            )
+            thread = ArcThread(memory_dir=tmp)
+            result = thread.run_episode(TinyEnv(), agent, config=RunnerConfig(max_steps=4))
+            self.assertTrue(result.done)
+            self.assertEqual(result.status, "WIN")
+            self.assertEqual(agent.active_agent_name, "target")
+            hits = thread.memory.search("Handoff route target", limit=3)
+            self.assertGreaterEqual(len(hits), 1)
 
 
 if __name__ == "__main__":

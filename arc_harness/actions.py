@@ -40,6 +40,9 @@ class Action:
     def from_value(cls, value: Any) -> "Action":
         if isinstance(value, Action):
             return value
+        if isinstance(value, dict):
+            xy = value.get("xy")
+            return cls(value.get("kind"), (int(xy[0]), int(xy[1])) if xy is not None else None, dict(value.get("meta", {})))
         if isinstance(value, str):
             return cls(value)
         if isinstance(value, Sequence) and len(value) == 3:

@@ -310,9 +310,39 @@ results = thread.delegate_many(
 )
 
 events = thread.read_delegation_events()
+trace = thread.read_delegation_trace()
 ```
 
-## v0.2 Scope
+Use `DelegatingPlannerAgent` when you want the action policy itself to close the
+loop over subagents:
+
+```python
+from arc_harness import DelegatingPlannerAgent
+
+agent = DelegatingPlannerAgent()
+result = thread.run_episode(env, agent)
+```
+
+Use `HandoffAgent` when a specialist should take over action selection after a
+state predicate matches:
+
+```python
+from arc_harness import HandoffAgent, HandoffRule, HeuristicAgent
+
+agent = HandoffAgent(
+    primary=HeuristicAgent(),
+    specialists={"explorer": explorer_agent},
+    rules=[
+        HandoffRule(
+            target="explorer",
+            reason="switch after repeated misses",
+            predicate=lambda state, memory: state["step"] >= 8,
+        )
+    ],
+)
+```
+
+## v0.3 Scope
 
 This release is a harness foundation. It intentionally includes:
 
@@ -330,6 +360,9 @@ This release is a harness foundation. It intentionally includes:
 - subagent lifecycle events;
 - retry policy for delegated subtasks;
 - parallel `delegate_many()` dispatch;
+- delegation trace/span persistence via `read_delegation_trace()`;
+- `DelegatingPlannerAgent` for perception -> exploration -> planning action loops;
+- `HandoffAgent` and `HandoffRule` for specialist takeover inside an episode;
 - thread/session persistence;
 - durable memory and typed replay loading;
 - SQLite-backed structured memory with namespace/category/tags;
@@ -347,7 +380,6 @@ It intentionally does not yet include:
 - the official ARC-AGI-3 environment adapter;
 - learned object perception beyond deterministic connected components;
 - a learned planner or search policy;
-- subagent handoff where a specialist takes over the episode loop;
 - local LLM/VLM integration;
 - visual replay tooling;
 - leaderboard-grade ARC solving behavior.
