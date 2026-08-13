@@ -7,7 +7,7 @@ from .agent import ArcAgent, HeuristicAgent, RuleLearningAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
 from .context import ContextBudget, ContextBundle, ContextInjector, ContextManager, ContextRole, ContextSection
-from .delegation import DelegationError, DelegationManager, SubAgent, SubAgentResult, SubTask
+from .delegation import DelegationConfig, DelegationError, DelegationManager, SubAgent, SubAgentResult, SubTask
 from .environment import ArcEnvironment, EnvironmentResult, validate_environment
 from .errors import ErrorContext, HarnessError, ValidationError
 from .evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner
@@ -28,7 +28,7 @@ from .memory_policy import MemoryPolicy
 from .memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
 from .policy import Decision, HookDecision
 from .replay import ReplayEpisode, ReplayStep
-from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent
+from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
 from .thread import ArcThread
 from .tracing import Span, Trace, TraceStore
 from .validation import validate_action, validate_frame
@@ -52,6 +52,7 @@ __all__ = [
     "DurableMemory",
     "AgentEvent",
     "Decision",
+    "DelegationConfig",
     "DelegationError",
     "DelegationManager",
     "DiffSubAgent",
@@ -79,6 +80,7 @@ __all__ = [
     "MemoryManager",
     "MemoryPolicy",
     "PerceptionSubAgent",
+    "PlannerSubAgent",
     "ReplayEpisode",
     "ReplayStep",
     "ResultGuardrail",

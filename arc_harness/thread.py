@@ -12,7 +12,7 @@ from .agent import ArcAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
 from .context import ContextBundle, ContextInjector, ContextManager
-from .delegation import DelegationManager, SubAgentResult
+from .delegation import DelegationConfig, DelegationManager, SubAgentResult, SubTask
 from .environment import ArcEnvironment
 from .events import AgentEvent, utc_now
 from .hooks import Hook, HookManager
@@ -43,13 +43,16 @@ class ArcThread:
         self.state_path = self.root / "threads" / f"{self.thread_id}.json"
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.memory = MemoryManager(DurableMemory(self.root / "memory"))
+        self.delegation_events: list[dict] = []
         self.delegation = self.delegation or DelegationManager.with_default_subagents()
+        self.delegation.set_event_sink(self._on_delegation_event)
         self.history: list[dict] = []
         self.created_at = utc_now()
         self.updated_at = self.created_at
         if self.state_path.exists():
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.history = data.get("history", [])
+            self.delegation_events = data.get("delegation_events", [])
             self.metadata = data.get("metadata", self.metadata)
             self.created_at = data.get("created_at", self.created_at)
             self.updated_at = data.get("updated_at", self.updated_at)
@@ -173,11 +176,40 @@ class ArcThread:
         context: ContextBundle | None = None,
         budget: int = 1000,
         metadata: dict | None = None,
+        config: DelegationConfig | None = None,
     ) -> SubAgentResult:
-        return self.delegation.delegate(kind, payload, self.memory, context=context, budget=budget, metadata=metadata)
+        result = self.delegation.delegate(
+            kind,
+            payload,
+            self.memory,
+            context=context,
+            budget=budget,
+            metadata=metadata,
+            config=config,
+        )
+        self._save_state()
+        return result
+
+    def delegate_many(
+        self,
+        tasks: list[SubTask | tuple[str, dict] | dict],
+        *,
+        config: DelegationConfig | None = None,
+    ) -> list[SubAgentResult]:
+        results = self.delegation.delegate_many(tasks, self.memory, config=config)
+        self._save_state()
+        return results
 
     def available_subtasks(self) -> tuple[str, ...]:
         return self.delegation.available_kinds()
+
+    def read_delegation_events(self) -> list[dict]:
+        return list(self.delegation_events)
+
+    def _on_delegation_event(self, event: AgentEvent) -> None:
+        payload = event.to_dict()
+        payload["thread_id"] = self.thread_id
+        self.delegation_events.append(payload)
 
     def _save_state(self) -> None:
         self.updated_at = utc_now()
@@ -187,5 +219,6 @@ class ArcThread:
             "updated_at": self.updated_at,
             "metadata": self.metadata,
             "history": self.history,
+            "delegation_events": self.delegation_events[-500:],
         }
         self.state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

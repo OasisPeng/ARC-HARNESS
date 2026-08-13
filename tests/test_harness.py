@@ -12,6 +12,8 @@ from arc_harness import (
     ContextBudget,
     ContextManager,
     CoordinateBoundsGuardrail,
+    DelegationConfig,
+    DelegationManager,
     EnvironmentResult,
     EvalCase,
     EvaluationRunner,
@@ -22,6 +24,7 @@ from arc_harness import (
     MemoryPolicy,
     RunnerConfig,
     RuleLearningAgent,
+    SubAgentResult,
 )
 from arc_harness.adapters import KaggleAgentAdapter
 
@@ -62,6 +65,20 @@ class CountingHook:
     def before_action(self, step: int, frame: Frame, action: Action):
         self.count += 1
         return action
+
+
+class FlakyPerceptionSubAgent:
+    name = "FlakyPerceptionSubAgent"
+    kinds = ("flaky_perceive",)
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, task, memory):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("temporary failure")
+        return SubAgentResult(task.task_id, self.name, True, {"calls": self.calls}, "recovered", confidence=0.7)
 
 
 class HarnessTests(unittest.TestCase):
@@ -281,6 +298,47 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(len(values), 3)
             self.assertNotIn(("ACTION6", 0, 0), values)
             self.assertNotIn("ACTION1", values)
+
+    def test_delegation_retry_records_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = DelegationManager([FlakyPerceptionSubAgent()], config=DelegationConfig(max_retries=1))
+            thread = ArcThread(memory_dir=tmp, delegation=manager)
+            result = thread.delegate("flaky_perceive", {"frame": Frame.from_grid([[0]])})
+            self.assertTrue(result.ok)
+            self.assertEqual(result.output["calls"], 2)
+            event_types = [event["type"] for event in thread.read_delegation_events()]
+            self.assertEqual(event_types, ["subtask.started", "subtask.retrying", "subtask.completed"])
+
+    def test_delegate_many_runs_multiple_subtasks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            results = thread.delegate_many(
+                [
+                    ("perceive", {"frame": Frame.from_grid([[1, 0], [0, 2]])}),
+                    ("explore", {"frame": Frame.from_grid([[1, 0], [0, 2]]), "tried_actions": []}),
+                ],
+                config=DelegationConfig(parallel_workers=2),
+            )
+            self.assertEqual([result.agent_name for result in results], ["PerceptionSubAgent", "ExplorerSubAgent"])
+            self.assertEqual(len([event for event in thread.read_delegation_events() if event["type"] == "subtask.completed"]), 2)
+
+    def test_planner_subagent_ranks_action_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            perception = thread.delegate("perceive", {"frame": Frame.from_grid([[0, 1], [0, 0]])})
+            result = thread.delegate(
+                "plan",
+                {
+                    "frame": Frame.from_grid([[0, 1], [0, 0]]),
+                    "perception": perception.output,
+                    "candidate_actions": [Action(ActionType.ACTION6, (0, 0)), Action(ActionType.ACTION6, (1, 0))],
+                },
+                budget=2,
+            )
+            self.assertTrue(result.ok)
+            self.assertEqual(result.agent_name, "PlannerSubAgent")
+            self.assertEqual(result.output["stop_reason"], "plan_ready")
+            self.assertEqual(result.output["plan"][0]["action"]["xy"], (1, 0))
 
 
 if __name__ == "__main__":

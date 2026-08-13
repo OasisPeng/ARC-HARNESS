@@ -240,7 +240,7 @@ For ARC, the harness defaults to manager-style delegation. `ArcThread` owns a
 of the episode:
 
 ```python
-from arc_harness import ArcThread, Frame
+from arc_harness import ArcThread, DelegationConfig, Frame
 
 thread = ArcThread(memory_dir=".arc_memory")
 
@@ -266,6 +266,16 @@ explore = thread.delegate(
     },
     budget=8,
 )
+
+plan = thread.delegate(
+    "plan",
+    {
+        "frame": Frame.from_grid([[0, 1], [0, 2]]),
+        "perception": perception.output,
+        "candidate_actions": explore.output["competition_values"],
+    },
+    budget=4,
+)
 ```
 
 Built-in specialists:
@@ -273,13 +283,36 @@ Built-in specialists:
 - `PerceptionSubAgent`: summarizes colors, grid size, and connected components.
 - `DiffSubAgent`: summarizes changed cells, affected bounding box, and status changes.
 - `ExplorerSubAgent`: proposes untried coordinate and button actions.
+- `PlannerSubAgent`: ranks candidate actions into a compact action plan.
 
 Each delegation returns a `SubAgentResult` with `output`, `summary`,
 `confidence`, and lightweight timing trace. Results are also stored under
 `namespace=("delegation", kind)` so later episodes can retrieve useful
 subagent observations from durable memory.
 
-## v0.1 Scope
+Delegation calls emit lifecycle events:
+
+- `subtask.started`
+- `subtask.retrying`
+- `subtask.completed`
+- `subtask.failed`
+
+Use `DelegationConfig` for retries, event tracing, memory persistence, and
+parallel worker limits:
+
+```python
+results = thread.delegate_many(
+    [
+        ("perceive", {"frame": latest_frame}),
+        ("explore", {"frame": latest_frame, "tried_actions": tried_actions}),
+    ],
+    config=DelegationConfig(max_retries=1, parallel_workers=2),
+)
+
+events = thread.read_delegation_events()
+```
+
+## v0.2 Scope
 
 This release is a harness foundation. It intentionally includes:
 
@@ -293,7 +326,10 @@ This release is a harness foundation. It intentionally includes:
 - trace/span persistence for episode observability;
 - budgeted context construction and injection;
 - manager-style subagent delegation;
-- deterministic perception/diff/exploration specialists;
+- deterministic perception/diff/exploration/planning specialists;
+- subagent lifecycle events;
+- retry policy for delegated subtasks;
+- parallel `delegate_many()` dispatch;
 - thread/session persistence;
 - durable memory and typed replay loading;
 - SQLite-backed structured memory with namespace/category/tags;
@@ -310,9 +346,8 @@ It intentionally does not yet include:
 
 - the official ARC-AGI-3 environment adapter;
 - learned object perception beyond deterministic connected components;
-- a real planner or search policy;
+- a learned planner or search policy;
 - subagent handoff where a specialist takes over the episode loop;
-- parallel subagent execution;
 - local LLM/VLM integration;
 - visual replay tooling;
 - leaderboard-grade ARC solving behavior.
