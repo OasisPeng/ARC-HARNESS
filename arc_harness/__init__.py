@@ -36,7 +36,18 @@ from .loop import EpisodeResult, EpisodeRunner
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
 from .memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
-from .models import CallableModel, JsonPolicyModel, LocalModel, ModelBackedAgent, ModelInput, ModelOutput
+from .models import (
+    DEFAULT_MODEL_REGISTRY,
+    CallableModel,
+    JsonPolicyModel,
+    LocalModel,
+    ModelBackedAgent,
+    ModelInput,
+    ModelOutput,
+    ModelRegistry,
+    build_agent_from_model_config,
+    load_model_from_config,
+)
 from .official import (
     ArcAgi3Config,
     EnvironmentFileCatalog,
@@ -46,6 +57,7 @@ from .official import (
     create_official_environment,
     resolve_official_action,
 )
+from .official_eval import OfficialSmokeReport, OfficialSmokeResult, OfficialSmokeRunner, discover_official_games
 from .policy import Decision, HookDecision
 from .replay import ReplayEpisode, ReplayStep
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
@@ -71,6 +83,7 @@ __all__ = [
     "ContextManager",
     "ContextRole",
     "ContextSection",
+    "DEFAULT_MODEL_REGISTRY",
     "DurableMemory",
     "AgentEvent",
     "Decision",
@@ -110,10 +123,14 @@ __all__ = [
     "ModelBackedAgent",
     "ModelInput",
     "ModelOutput",
+    "ModelRegistry",
     "LocalModel",
     "JsonPolicyModel",
     "OfficialArcEnvironment",
     "OfficialDependencyError",
+    "OfficialSmokeReport",
+    "OfficialSmokeResult",
+    "OfficialSmokeRunner",
     "PerceptionSubAgent",
     "PlannerSubAgent",
     "ReplayEpisode",
@@ -134,8 +151,11 @@ __all__ = [
     "StructuredMemoryStore",
     "ValidationError",
     "WorkingMemory",
+    "build_agent_from_model_config",
     "coerce_official_frame",
     "create_official_environment",
+    "discover_official_games",
+    "load_model_from_config",
     "resolve_official_action",
     "validate_action",
     "validate_environment",

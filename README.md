@@ -142,6 +142,18 @@ def choose_action(frames, latest_frame):
     return adapter.choose_action(frames, latest_frame)
 ```
 
+For a Notebook with the package copied in, `arc_harness.submission` exposes the
+same functions directly. Configure the default agent with environment variables:
+
+```python
+from arc_harness.submission import choose_action, is_done
+
+# Optional:
+# ARC_HARNESS_AGENT=delegating_planner
+# ARC_HARNESS_AGENT=json_policy
+# ARC_HARNESS_POLICY=/kaggle/input/my-policy/policy.json
+```
+
 ## Official ARC-AGI-3 Adapter
 
 The official Kaggle bundle provides `arc_agi.Arcade()` and public
@@ -183,6 +195,19 @@ from arc_harness import EnvironmentFileCatalog
 games = EnvironmentFileCatalog("environment_files").list_games()
 ```
 
+Run a bounded smoke pass across discovered public games:
+
+```python
+from arc_harness import DelegatingPlannerAgent, OfficialSmokeRunner, RunnerConfig
+
+report = OfficialSmokeRunner("environment_files").run(
+    DelegatingPlannerAgent(),
+    max_games=5,
+    config=RunnerConfig(max_steps=32, abort_on_error=False),
+)
+print(report.to_dict())
+```
+
 ## Offline Model Integration
 
 Kaggle evaluation disables internet access, so model integrations are local
@@ -212,6 +237,18 @@ class MyLocalModel:
 
     def predict(self, model_input):
         return ModelOutput(action=("ACTION1"))
+```
+
+You can also load a model from a JSON config:
+
+```json
+{"type": "json_policy", "path": "/kaggle/input/my-policy/policy.json"}
+```
+
+```python
+from arc_harness import build_agent_from_model_config
+
+agent = build_agent_from_model_config("/kaggle/input/my-policy/model.json")
 ```
 
 ## Design Notes
@@ -424,6 +461,7 @@ This release is a harness foundation. It intentionally includes:
 - environment protocol validation;
 - direct official ARC-AGI-3 toolkit wrapping through `OfficialArcEnvironment`;
 - public `environment_files` metadata discovery;
+- official public-game smoke runner via `OfficialSmokeRunner`;
 - configurable episode running via `RunnerConfig`;
 - structured event streaming;
 - action permission hooks;
@@ -446,6 +484,7 @@ This release is a harness foundation. It intentionally includes:
 - automatic episode-to-memory consolidation;
 - policy-only memory guidance;
 - Kaggle-safe offline model protocol and `ModelBackedAgent`;
+- JSON model config loading and Kaggle `submission.py` helpers;
 - fail-fast validation for frames/actions;
 - structured error context with traceback;
 - per-episode checkpoints;

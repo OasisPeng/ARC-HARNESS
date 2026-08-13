@@ -28,14 +28,18 @@ from arc_harness import (
     JsonPolicyModel,
     MemoryPolicy,
     ModelBackedAgent,
+    ModelInput,
     ModelOutput,
     OfficialArcEnvironment,
+    OfficialSmokeRunner,
     RunnerConfig,
     RuleLearningAgent,
     SubAgentResult,
 )
 from arc_harness.adapters import KaggleAgentAdapter
+from arc_harness.models import load_model_from_config
 from arc_harness.official import EnvironmentFileCatalog, coerce_official_frame
+from arc_harness.submission import build_adapter
 
 
 class TinyEnv:
@@ -470,6 +474,33 @@ class HarnessTests(unittest.TestCase):
             adapter = KaggleAgentAdapter(ModelBackedAgent(model, inject_context=False), memory_dir=Path(tmp) / "memory")
             action = adapter.choose_action([[[0, 1], [0, 2]]], [[0, 1], [0, 2]])
             self.assertEqual(action, ("ACTION6", 1, 0))
+
+    def test_model_config_loads_json_policy_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "policy.json"
+            config_path = Path(tmp) / "model.json"
+            policy_path.write_text('{"*": "ACTION1"}', encoding="utf-8")
+            config_path.write_text(f'{{"type": "json_policy", "path": "{policy_path}"}}', encoding="utf-8")
+            model = load_model_from_config(config_path)
+            output = model.predict(ModelInput([], Frame.from_grid([[0]])))
+            self.assertEqual(output.best_action().kind, "ACTION1")
+
+    def test_submission_helpers_build_adapter_from_explicit_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = build_adapter(HeuristicAgent(), memory_dir=Path(tmp) / "memory")
+            action = adapter.choose_action([[[0, 1], [0, 2]]], [[0, 1], [0, 2]])
+            self.assertEqual(action, ("ACTION6", 0, 0))
+
+    def test_official_smoke_runner_skips_when_official_package_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_root = Path(tmp) / "environment_files"
+            game_dir = env_root / "demo"
+            game_dir.mkdir(parents=True)
+            (game_dir / "metadata.json").write_text('{"game_id": "demo"}', encoding="utf-8")
+            report = OfficialSmokeRunner(env_root, memory_dir=Path(tmp) / "memory").run(HeuristicAgent(), max_games=1)
+            self.assertEqual(report.total, 1)
+            self.assertIn(report.results[0].status, {"SKIPPED", "ERROR"})
+            self.assertTrue(report.results[0].error)
 
 
 if __name__ == "__main__":

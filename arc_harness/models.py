@@ -122,6 +122,43 @@ class ModelBackedAgent(ArcAgent):
             return self.fallback.choose_action(frames, latest_frame, memory)
 
 
+class ModelRegistry:
+    """Small registry for local model factories."""
+
+    def __init__(self) -> None:
+        self._factories: dict[str, Callable[..., LocalModel]] = {}
+
+    def register(self, name: str, factory: Callable[..., LocalModel]) -> None:
+        if not name:
+            raise ValueError("Model name must be non-empty.")
+        self._factories[name] = factory
+
+    def create(self, name: str, **kwargs: Any) -> LocalModel:
+        if name not in self._factories:
+            raise KeyError(f"Unknown local model {name!r}. Registered: {sorted(self._factories)}")
+        return self._factories[name](**kwargs)
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self._factories))
+
+
+DEFAULT_MODEL_REGISTRY = ModelRegistry()
+DEFAULT_MODEL_REGISTRY.register("json_policy", JsonPolicyModel)
+
+
+def load_model_from_config(path: str | Path, registry: ModelRegistry | None = None) -> LocalModel:
+    config = json.loads(Path(path).read_text(encoding="utf-8"))
+    name = str(config.get("type") or config.get("name"))
+    kwargs = dict(config.get("kwargs", {}))
+    if "path" in config and "path" not in kwargs:
+        kwargs["path"] = config["path"]
+    return (registry or DEFAULT_MODEL_REGISTRY).create(name, **kwargs)
+
+
+def build_agent_from_model_config(path: str | Path, *, fallback: ArcAgent | None = None) -> ModelBackedAgent:
+    return ModelBackedAgent(load_model_from_config(path), fallback=fallback)
+
+
 def coerce_model_output(value: Action | ModelOutput | dict | tuple | str) -> ModelOutput:
     if isinstance(value, ModelOutput):
         return value
