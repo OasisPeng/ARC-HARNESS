@@ -32,6 +32,7 @@ from .guardrails import (
     ResultGuardrail,
 )
 from .hooks import ActionBudgetHook, Hook, HookManager, HookMatcher, JsonlTraceHook
+from .kaggle import KaggleReadinessReport, ReadinessCheck, build_submission_manifest, check_kaggle_readiness
 from .loop import EpisodeResult, EpisodeRunner
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
@@ -117,6 +118,7 @@ __all__ = [
     "HookMatcher",
     "HookManager",
     "JsonlTraceHook",
+    "KaggleReadinessReport",
     "MemoryEntry",
     "MemoryManager",
     "MemoryPolicy",
@@ -135,6 +137,7 @@ __all__ = [
     "PlannerSubAgent",
     "ReplayEpisode",
     "ReplayStep",
+    "ReadinessCheck",
     "ResultGuardrail",
     "RuleLearningAgent",
     "RunnerConfig",
@@ -152,6 +155,8 @@ __all__ = [
     "ValidationError",
     "WorkingMemory",
     "build_agent_from_model_config",
+    "build_submission_manifest",
+    "check_kaggle_readiness",
     "coerce_official_frame",
     "create_official_environment",
     "discover_official_games",

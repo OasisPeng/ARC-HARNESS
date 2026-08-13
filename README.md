@@ -24,17 +24,20 @@ arc_harness/
   evaluation.py    Batch evaluation runner and JSON-friendly reports.
   guardrails.py    Action/frame/result guardrail interfaces.
   hooks.py         Hook interface and built-in logging hook.
+  kaggle.py        Kaggle readiness checks and submission manifest.
   loop.py          EpisodeRunner: the agent loop.
   memory.py        Layered memory stores.
   memory_policy.py Policy-only guidance for when/how to retrieve memory.
   memory_store.py  SQLite memory store with hybrid search.
   models.py        Offline local model protocol and model-backed agent.
   official.py      Optional official ARC-AGI-3 toolkit/environment adapter.
+  official_eval.py Public official-game smoke runner.
   policy.py        Hook decisions: allow, rewrite, block.
   checkpoint.py    Latest-step checkpoint persistence.
   context.py       Budgeted context manager and injector.
   delegation.py    SubTask/SubAgent/SubAgentResult and dispatch manager.
   subagents.py     Default perception, diff, and exploration specialists.
+  submission.py    Kaggle choose_action/is_done helper entrypoint.
   tracing.py       Trace/span model and JSON persistence.
   validation.py    Frame/action validators.
   thread.py        Codex-like ArcThread API.
@@ -42,6 +45,8 @@ arc_harness/
 examples/
   stream_and_hooks.py SDK-like event and hook example.
   toy_grid_game.py Small runnable example environment and agent.
+scripts/
+  check_kaggle_readiness.py Pre-submission readiness report.
 tests/
   test_harness.py  Smoke tests for loop, hooks, memory, and thread resume.
 ```
@@ -152,6 +157,26 @@ from arc_harness.submission import choose_action, is_done
 # ARC_HARNESS_AGENT=delegating_planner
 # ARC_HARNESS_AGENT=json_policy
 # ARC_HARNESS_POLICY=/kaggle/input/my-policy/policy.json
+```
+
+Check the copied package before submitting:
+
+```bash
+python3 scripts/check_kaggle_readiness.py \
+  --environment-files /kaggle/input/arc-prize-2026-arc-agi-3/environment_files \
+  --model-config /kaggle/input/my-policy/model.json
+```
+
+The same report is available from Python:
+
+```python
+from arc_harness import check_kaggle_readiness
+
+report = check_kaggle_readiness(
+    environments_dir="/kaggle/input/arc-prize-2026-arc-agi-3/environment_files",
+    model_config="/kaggle/input/my-policy/model.json",
+)
+print(report.to_dict())
 ```
 
 ## Official ARC-AGI-3 Adapter

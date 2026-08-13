@@ -4,11 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arc-harness"
-version = "0.1.0"
+version = "0.4.0"
 description = "Lightweight ARC-AGI-3-style agent harness"
 requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["arc_harness*"]
-

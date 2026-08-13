@@ -13,6 +13,7 @@ from arc_harness import (
     ContextBudget,
     ContextManager,
     CoordinateBoundsGuardrail,
+    KaggleReadinessReport,
     DelegatingPlannerAgent,
     DelegationConfig,
     DelegationManager,
@@ -35,6 +36,8 @@ from arc_harness import (
     RunnerConfig,
     RuleLearningAgent,
     SubAgentResult,
+    build_submission_manifest,
+    check_kaggle_readiness,
 )
 from arc_harness.adapters import KaggleAgentAdapter
 from arc_harness.models import load_model_from_config
@@ -501,6 +504,16 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(report.total, 1)
             self.assertIn(report.results[0].status, {"SKIPPED", "ERROR"})
             self.assertTrue(report.results[0].error)
+
+    def test_kaggle_readiness_report_checks_manifest_and_submission(self) -> None:
+        report = check_kaggle_readiness(package_root="arc_harness", agent=HeuristicAgent())
+        self.assertIsInstance(report, KaggleReadinessReport)
+        names = [check.name for check in report.checks]
+        self.assertIn("package_files", names)
+        self.assertIn("submission_functions", names)
+        submission = [check for check in report.checks if check.name == "submission_functions"][0]
+        self.assertTrue(submission.ok)
+        self.assertIn("arc_harness/submission.py", build_submission_manifest("arc_harness"))
 
 
 if __name__ == "__main__":
