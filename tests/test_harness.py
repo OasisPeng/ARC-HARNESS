@@ -9,6 +9,7 @@ from arc_harness import (
     ActionBudgetHook,
     ActionType,
     ArcThread,
+    CallableModel,
     ContextBudget,
     ContextManager,
     CoordinateBoundsGuardrail,
@@ -24,12 +25,17 @@ from arc_harness import (
     HeuristicAgent,
     HookDecision,
     HookMatcher,
+    JsonPolicyModel,
     MemoryPolicy,
+    ModelBackedAgent,
+    ModelOutput,
+    OfficialArcEnvironment,
     RunnerConfig,
     RuleLearningAgent,
     SubAgentResult,
 )
 from arc_harness.adapters import KaggleAgentAdapter
+from arc_harness.official import EnvironmentFileCatalog, coerce_official_frame
 
 
 class TinyEnv:
@@ -87,6 +93,34 @@ class FlakyPerceptionSubAgent:
         if self.calls == 1:
             raise RuntimeError("temporary failure")
         return SubAgentResult(task.task_id, self.name, True, {"calls": self.calls}, "recovered", confidence=0.7)
+
+
+class FakeOfficialAction:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class FakeOfficialFrame:
+    def __init__(self, grid, state="NOT_FINISHED") -> None:
+        self.grid = grid
+        self.state = state
+
+
+class FakeOfficialEnv:
+    def __init__(self) -> None:
+        self.grid = [[0, 1], [0, 2]]
+        self.action_space = [FakeOfficialAction("ACTION1"), FakeOfficialAction("ACTION6")]
+        self.calls = []
+
+    def reset(self):
+        return FakeOfficialFrame(self.grid)
+
+    def step(self, action, data=None, reasoning=None):
+        self.calls.append({"action": action.name, "data": data, "reasoning": reasoning})
+        if action.name == "ACTION6" and data == {"x": 1, "y": 0}:
+            self.grid[0][1] = 3
+            return FakeOfficialFrame(self.grid, state="WIN")
+        return FakeOfficialFrame(self.grid)
 
 
 class HarnessTests(unittest.TestCase):
@@ -387,6 +421,55 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(agent.active_agent_name, "target")
             hits = thread.memory.search("Handoff route target", limit=3)
             self.assertGreaterEqual(len(hits), 1)
+
+    def test_official_frame_coercion_accepts_object_and_dict_shapes(self) -> None:
+        frame = coerce_official_frame(FakeOfficialFrame([[1, 2]], state="WIN"))
+        self.assertEqual(frame.grid, ((1, 2),))
+        self.assertEqual(frame.status, "WIN")
+
+        frame2 = coerce_official_frame({"frame": [[0]], "state": "GAME_OVER"})
+        self.assertEqual(frame2.status, "GAME_OVER")
+
+    def test_official_environment_wraps_reset_and_complex_step(self) -> None:
+        env = FakeOfficialEnv()
+        wrapped = OfficialArcEnvironment(env, game_id="fake-game")
+        start = wrapped.reset()
+        self.assertEqual(start.status, "NOT_FINISHED")
+        result = wrapped.step(Action(ActionType.ACTION6, (1, 0)))
+        self.assertTrue(result.done)
+        self.assertEqual(result.frame.status, "WIN")
+        self.assertEqual(env.calls[-1]["data"], {"x": 1, "y": 0})
+        self.assertEqual(result.info["official_action"], "ACTION6")
+
+    def test_environment_file_catalog_lists_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            game_dir = Path(tmp) / "environment_files" / "demo"
+            game_dir.mkdir(parents=True)
+            (game_dir / "metadata.json").write_text('{"game_id": "demo01", "title": "Demo"}', encoding="utf-8")
+            catalog = EnvironmentFileCatalog(Path(tmp) / "environment_files")
+            games = catalog.list_games()
+            self.assertEqual(games[0]["game_id"], "demo01")
+            self.assertEqual(games[0]["metadata"]["title"], "Demo")
+
+    def test_json_policy_model_and_model_backed_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "policy.json"
+            policy_path.write_text('{"0,1|0,2": ["ACTION6", 1, 0]}', encoding="utf-8")
+            agent = ModelBackedAgent(JsonPolicyModel(policy_path), inject_context=False)
+            thread = ArcThread(memory_dir=tmp)
+            result = thread.run_episode(TinyEnv(), agent, config=RunnerConfig(max_steps=2))
+            self.assertTrue(result.done)
+            self.assertEqual(result.status, "WIN")
+
+    def test_callable_model_can_return_plan_for_kaggle_adapter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            model = CallableModel(
+                lambda model_input: ModelOutput(plan=[{"action": {"kind": "ACTION6", "xy": (1, 0)}, "score": 1.0}]),
+                name="PlanModel",
+            )
+            adapter = KaggleAgentAdapter(ModelBackedAgent(model, inject_context=False), memory_dir=Path(tmp) / "memory")
+            action = adapter.choose_action([[[0, 1], [0, 2]]], [[0, 1], [0, 2]])
+            self.assertEqual(action, ("ACTION6", 1, 0))
 
 
 if __name__ == "__main__":

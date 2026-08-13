@@ -36,6 +36,16 @@ from .loop import EpisodeResult, EpisodeRunner
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
 from .memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
+from .models import CallableModel, JsonPolicyModel, LocalModel, ModelBackedAgent, ModelInput, ModelOutput
+from .official import (
+    ArcAgi3Config,
+    EnvironmentFileCatalog,
+    OfficialArcEnvironment,
+    OfficialDependencyError,
+    coerce_official_frame,
+    create_official_environment,
+    resolve_official_action,
+)
 from .policy import Decision, HookDecision
 from .replay import ReplayEpisode, ReplayStep
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
@@ -48,10 +58,12 @@ __all__ = [
     "ActionBudgetHook",
     "ActionGuardrail",
     "ActionType",
+    "ArcAgi3Config",
     "ArcAgent",
     "ArcEnvironment",
     "ArcThread",
     "CheckpointStore",
+    "CallableModel",
     "CoordinateBoundsGuardrail",
     "ContextBudget",
     "ContextBundle",
@@ -68,6 +80,7 @@ __all__ = [
     "DelegationManager",
     "DiffSubAgent",
     "EnvironmentResult",
+    "EnvironmentFileCatalog",
     "ErrorContext",
     "EvalCase",
     "EvalCaseResult",
@@ -94,6 +107,13 @@ __all__ = [
     "MemoryEntry",
     "MemoryManager",
     "MemoryPolicy",
+    "ModelBackedAgent",
+    "ModelInput",
+    "ModelOutput",
+    "LocalModel",
+    "JsonPolicyModel",
+    "OfficialArcEnvironment",
+    "OfficialDependencyError",
     "PerceptionSubAgent",
     "PlannerSubAgent",
     "ReplayEpisode",
@@ -114,6 +134,9 @@ __all__ = [
     "StructuredMemoryStore",
     "ValidationError",
     "WorkingMemory",
+    "coerce_official_frame",
+    "create_official_environment",
+    "resolve_official_action",
     "validate_action",
     "validate_environment",
     "validate_frame",

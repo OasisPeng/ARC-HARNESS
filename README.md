@@ -1,6 +1,6 @@
-# Lightweight ARC Agent Harness
+# ARC Agent Harness
 
-Version: `0.1.0`
+Version: `0.4.0`
 
 This project is a small Python harness for ARC-AGI-3-style interactive agents.
 It borrows three architectural ideas while staying offline-friendly:
@@ -28,6 +28,8 @@ arc_harness/
   memory.py        Layered memory stores.
   memory_policy.py Policy-only guidance for when/how to retrieve memory.
   memory_store.py  SQLite memory store with hybrid search.
+  models.py        Offline local model protocol and model-backed agent.
+  official.py      Optional official ARC-AGI-3 toolkit/environment adapter.
   policy.py        Hook decisions: allow, rewrite, block.
   checkpoint.py    Latest-step checkpoint persistence.
   context.py       Budgeted context manager and injector.
@@ -138,6 +140,78 @@ def is_done(frames, latest_frame):
 
 def choose_action(frames, latest_frame):
     return adapter.choose_action(frames, latest_frame)
+```
+
+## Official ARC-AGI-3 Adapter
+
+The official Kaggle bundle provides `arc_agi.Arcade()` and public
+`environment_files`. The harness keeps this dependency optional so unit tests
+and Kaggle notebooks remain offline-friendly.
+
+Wrap an already-created official environment:
+
+```python
+from arc_harness import OfficialArcEnvironment
+
+env = OfficialArcEnvironment(official_env, game_id="ls20")
+result = thread.run_episode(env, agent)
+```
+
+Or create one through the official toolkit when `arc_agi` is installed:
+
+```python
+from arc_harness import ArcAgi3Config, create_official_environment
+
+env = create_official_environment(
+    ArcAgi3Config(
+        game_id="ls20",
+        operation_mode="OFFLINE",
+        environments_dir="/kaggle/input/arc-prize-2026-arc-agi-3/environment_files",
+    )
+)
+```
+
+For `ACTION6`, the adapter sends official action data as `{"x": x, "y": y}`.
+It also normalizes official frame objects/dicts into harness `Frame(grid,
+status, raw)`.
+
+List public game metadata from a downloaded Kaggle bundle:
+
+```python
+from arc_harness import EnvironmentFileCatalog
+
+games = EnvironmentFileCatalog("environment_files").list_games()
+```
+
+## Offline Model Integration
+
+Kaggle evaluation disables internet access, so model integrations are local
+protocols rather than online API clients.
+
+```python
+from arc_harness import CallableModel, ModelBackedAgent, ModelOutput
+
+model = CallableModel(
+    lambda model_input: ModelOutput(
+        plan=[{"action": {"kind": "ACTION6", "xy": (1, 0)}, "score": 1.0}],
+        confidence=0.9,
+        rationale="policy file selected a known target",
+    ),
+    name="LocalPolicy",
+)
+
+agent = ModelBackedAgent(model)
+```
+
+`JsonPolicyModel` is a tiny deterministic policy useful for smoke tests and
+offline notebooks. Larger local models can implement the `LocalModel` protocol:
+
+```python
+class MyLocalModel:
+    name = "MyLocalModel"
+
+    def predict(self, model_input):
+        return ModelOutput(action=("ACTION1"))
 ```
 
 ## Design Notes
@@ -342,12 +416,14 @@ agent = HandoffAgent(
 )
 ```
 
-## v0.3 Scope
+## v0.4 Scope
 
 This release is a harness foundation. It intentionally includes:
 
 - a stable action/frame/result data model;
 - environment protocol validation;
+- direct official ARC-AGI-3 toolkit wrapping through `OfficialArcEnvironment`;
+- public `environment_files` metadata discovery;
 - configurable episode running via `RunnerConfig`;
 - structured event streaming;
 - action permission hooks;
@@ -369,6 +445,7 @@ This release is a harness foundation. It intentionally includes:
 - hybrid keyword/vector memory search without external services;
 - automatic episode-to-memory consolidation;
 - policy-only memory guidance;
+- Kaggle-safe offline model protocol and `ModelBackedAgent`;
 - fail-fast validation for frames/actions;
 - structured error context with traceback;
 - per-episode checkpoints;
@@ -377,7 +454,6 @@ This release is a harness foundation. It intentionally includes:
 
 It intentionally does not yet include:
 
-- the official ARC-AGI-3 environment adapter;
 - learned object perception beyond deterministic connected components;
 - a learned planner or search policy;
 - local LLM/VLM integration;
@@ -386,11 +462,13 @@ It intentionally does not yet include:
 
 ## Recommended ARC-AGI-3 Extension Path
 
-1. Add an adapter around the official ARC environment that implements
-   `reset()` and `step(Action) -> EnvironmentResult`.
+1. Run `OfficialArcEnvironment` against the public Kaggle `environment_files`
+   and collect traces for each game.
 2. Extend `RuleLearningAgent` with object extraction and frame-diff features.
-3. Add a planner module that proposes action sequences, not just one action.
-4. Store successful procedures with `DurableMemory.save_skill()`.
-5. Use `ArcThread.run_streamed()` plus `JsonlTraceHook` to compare runs.
-6. Copy only the needed Python files into Kaggle when preparing the final
+3. Replace `JsonPolicyModel`/`CallableModel` with a real local model or search
+   policy that implements `LocalModel`.
+4. Add action-sequence search on top of `PlannerSubAgent`.
+5. Store successful procedures with `DurableMemory.save_skill()`.
+6. Use `ArcThread.run_streamed()` plus `JsonlTraceHook` to compare runs.
+7. Copy only the needed Python files into Kaggle when preparing the final
    Notebook. Do not depend on online Claude/OpenAI/pi-agent runtimes there.
