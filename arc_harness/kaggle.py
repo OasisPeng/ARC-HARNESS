@@ -46,6 +46,7 @@ CORE_PACKAGE_FILES = (
     "subagents.py",
     "submission.py",
     "thread.py",
+    "tools.py",
     "tracing.py",
     "validation.py",
     "__init__.py",

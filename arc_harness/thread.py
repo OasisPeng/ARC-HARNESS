@@ -20,6 +20,7 @@ from .loop import EpisodeResult, EpisodeRunner
 from .loop_stages import StagePipeline
 from .memory import DurableMemory, MemoryManager
 from .replay import ReplayEpisode
+from .tools import ToolCall, ToolContext, ToolDispatcher, ToolResult
 from .tracing import Trace, TraceStore
 
 
@@ -37,6 +38,7 @@ class ArcThread:
     guardrails: list = field(default_factory=list)
     delegation: DelegationManager | None = None
     pipeline: StagePipeline | None = None
+    tools: ToolDispatcher | None = None
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -51,6 +53,7 @@ class ArcThread:
         self._delegation_spans = {}
         self.delegation = self.delegation or DelegationManager.with_default_subagents()
         self.delegation.set_event_sink(self._on_delegation_event)
+        self.tools = self.tools or ToolDispatcher.with_default_tools()
         self.history: list[dict] = []
         self.created_at = utc_now()
         self.updated_at = self.created_at
@@ -107,6 +110,7 @@ class ArcThread:
             self.guardrails,
             pipeline=pipeline or self.pipeline,
             delegation=self.delegation,
+            tools=self.tools,
         )
         result = runner.run(env, agent, config=run_config)
         self.history.append(result.to_dict())
@@ -130,6 +134,7 @@ class ArcThread:
             self.guardrails,
             pipeline=pipeline or self.pipeline,
             delegation=self.delegation,
+            tools=self.tools,
         )
         completed: EpisodeResult | None = None
         event_dicts: list[dict] = []
@@ -226,6 +231,20 @@ class ArcThread:
 
     def available_subtasks(self) -> tuple[str, ...]:
         return self.delegation.available_kinds()
+
+    def available_tools(self) -> tuple[str, ...]:
+        return self.tools.registry.names() if self.tools else ()
+
+    def run_tool(self, call: ToolCall | dict, *, frame=None, frames: list | None = None, metadata: dict | None = None) -> ToolResult:
+        dispatcher = self.tools or ToolDispatcher.with_default_tools()
+        context = ToolContext(
+            memory=self.memory,
+            frame=frame,
+            frames=list(frames or []),
+            delegation=self.delegation,
+            metadata=dict(metadata or {}),
+        )
+        return dispatcher.dispatch(call, context)
 
     def read_delegation_events(self) -> list[dict]:
         return list(self.delegation_events)

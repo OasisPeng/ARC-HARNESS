@@ -51,6 +51,13 @@ from arc_harness import (
     SandboxPolicyError,
     StagePipeline,
     SubAgentResult,
+    ToolCall,
+    ToolContext,
+    ToolDispatcher,
+    ToolError,
+    ToolRegistry,
+    ToolSpec,
+    ToolUseStage,
     build_kaggle_package,
     build_submission_manifest,
     check_kaggle_readiness,
@@ -99,6 +106,15 @@ class OutOfBoundsAgent(HeuristicAgent):
 class TargetAgent(HeuristicAgent):
     def choose_action(self, frames, latest_frame, memory):
         return Action(ActionType.ACTION6, (1, 0))
+
+
+class ToolPlanningAgent(TargetAgent):
+    def choose_tools(self, frames, latest_frame, memory, tools):
+        return [
+            ToolCall("observe_objects", {"limit": 4}),
+            {"name": "propose_actions", "arguments": {"limit": 2}},
+            {"name": "write_note", "arguments": {"text": "tool-assisted step"}},
+        ]
 
 
 class CountingHook:
@@ -208,6 +224,25 @@ class HarnessTests(unittest.TestCase):
         sandbox = DEFAULT_CAPABILITY_REGISTRY.require("sandbox", "local_subprocess", supports=("timeout",))
         self.assertIsInstance(sandbox, LocalSubprocessSandbox)
 
+    def test_tool_registry_dispatches_and_enforces_policy(self) -> None:
+        def echo(arguments, context):
+            return {"echo": arguments["text"]}
+
+        registry = ToolRegistry()
+        registry.register(echo, ToolSpec("echo", "Echo text.", {"type": "object", "properties": {"text": {"type": "string"}}}, required=("text",)))
+        dispatcher = ToolDispatcher(registry)
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            context = ToolContext(memory=thread.memory, frame=Frame.from_grid([[1]]))
+            result = dispatcher.dispatch(ToolCall("echo", {"text": "ok"}), context)
+            self.assertTrue(result.ok)
+            self.assertEqual(result.output["echo"], "ok")
+            missing = dispatcher.dispatch(ToolCall("echo", {}), context)
+            self.assertFalse(missing.ok)
+            denied = ToolDispatcher(registry, permissions={"echo": "deny"}).dispatch(ToolCall("echo", {"text": "no"}), context)
+            self.assertFalse(denied.ok)
+            self.assertIn("denied", denied.error)
+
     def test_local_sandbox_runs_command_and_captures_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sandbox = LocalSubprocessSandbox(
@@ -222,6 +257,21 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             self.assertIn("arc sandbox ok", result.stdout)
             self.assertEqual(result.metadata["cwd"], str(Path(tmp).resolve()))
+
+    def test_thread_exposes_builtin_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            self.assertIn("observe_objects", thread.available_tools())
+            frame = Frame.from_grid([[1, 1, 0], [0, 2, 2]])
+            objects = thread.run_tool({"name": "observe_objects", "arguments": {"limit": 4}}, frame=frame)
+            self.assertTrue(objects.ok)
+            self.assertEqual(objects.output["nonzero_object_count"], 2)
+            actions = thread.run_tool({"name": "propose_actions", "arguments": {"limit": 2}}, frame=frame)
+            self.assertTrue(actions.ok)
+            self.assertEqual(len(actions.output["actions"]), 2)
+            note = thread.run_tool({"name": "write_note", "arguments": {"text": "remember this"}}, frame=frame)
+            self.assertTrue(note.ok)
+            self.assertIn("remember this", thread.memory.working.notes)
 
     def test_local_sandbox_rejects_policy_violations(self) -> None:
         sandbox = LocalSubprocessSandbox(SandboxPolicy(allowed_commands=("python",)))
@@ -305,9 +355,9 @@ class HarnessTests(unittest.TestCase):
 
     def test_stage_pipeline_exposes_order_and_allows_insertion(self) -> None:
         pipeline = StagePipeline()
-        self.assertEqual(pipeline.names(), ("done_check", "context.build", "decision", "permission", "action.execute", "stop_check"))
+        self.assertEqual(pipeline.names(), ("done_check", "context.build", "tool.use", "decision", "permission", "action.execute", "stop_check"))
         pipeline.insert_before("decision", NoteStage())
-        self.assertEqual(pipeline.names()[2], "note")
+        self.assertEqual(pipeline.names()[3], "note")
 
         with tempfile.TemporaryDirectory() as tmp:
             thread = ArcThread(memory_dir=tmp, pipeline=pipeline)
@@ -317,6 +367,33 @@ class HarnessTests(unittest.TestCase):
             self.assertTrue(context_events)
             self.assertIn("action_map", context_events[0]["payload"]["context"]["sections"])
             self.assertIn("custom stage at step 0", thread.memory.working.notes)
+            self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
+
+    def test_tool_use_stage_dispatches_agent_tools_before_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            events = list(thread.run_streamed(TinyEnv(), ToolPlanningAgent(), config=RunnerConfig(max_steps=2)))
+            event_types = [event["type"] for event in events]
+            self.assertIn("tool.requested", event_types)
+            self.assertIn("tool.completed", event_types)
+            self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
+            self.assertIn("tool-assisted step", thread.memory.working.notes)
+            completed = [event for event in events if event["type"] == "tool.completed"]
+            self.assertEqual(len(completed), 3)
+            trace_id = events[-1]["payload"]["result"]["summary"]["trace_id"]
+            trace = thread.read_trace(trace_id)
+            self.assertIn("tool.dispatch", [span["name"] for span in trace["spans"]])
+
+    def test_tool_use_stage_records_failed_tool_result(self) -> None:
+        class MissingToolAgent(TargetAgent):
+            def choose_tools(self, frames, latest_frame, memory, tools):
+                return [ToolCall("missing_tool", {})]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp)
+            events = list(thread.run_streamed(TinyEnv(), MissingToolAgent(), config=RunnerConfig(max_steps=2)))
+            self.assertIn("tool.failed", [event["type"] for event in events])
+            self.assertTrue(any("missing_tool" in failure for failure in thread.memory.working.failures))
             self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
 
     def test_recovery_policy_retries_failed_stage(self) -> None:

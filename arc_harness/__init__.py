@@ -57,6 +57,7 @@ from .loop_stages import (
     PlanningStage,
     StagePipeline,
     StopCheckStage,
+    ToolUseStage,
     default_loop_stages,
     delegating_planner_loop_stages,
 )
@@ -91,6 +92,17 @@ from .recovery import DefaultRecoveryPolicy, NoRecoveryPolicy, RecoveryDecision,
 from .sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
 from .thread import ArcThread
+from .tools import (
+    RegisteredTool,
+    ToolCall,
+    ToolContext,
+    ToolDispatcher,
+    ToolError,
+    ToolRegistry,
+    ToolResult,
+    ToolSpec,
+    default_tool_registry,
+)
 from .tracing import Span, Trace, TraceStore, TraceTimeline, TraceTimelineItem
 from .validation import validate_action, validate_frame
 
@@ -188,6 +200,7 @@ __all__ = [
     "ProviderDescriptor",
     "ReplayEpisode",
     "ReplayStep",
+    "RegisteredTool",
     "RecoveryDecision",
     "RecoveryKind",
     "RecoveryPolicy",
@@ -211,6 +224,14 @@ __all__ = [
     "SubAgent",
     "SubAgentResult",
     "SubTask",
+    "ToolCall",
+    "ToolContext",
+    "ToolDispatcher",
+    "ToolError",
+    "ToolRegistry",
+    "ToolResult",
+    "ToolSpec",
+    "ToolUseStage",
     "Trace",
     "TraceStore",
     "StructuredMemoryStore",
@@ -226,6 +247,7 @@ __all__ = [
     "discover_official_games",
     "episode_metrics",
     "default_loop_stages",
+    "default_tool_registry",
     "delegating_planner_loop_stages",
     "load_model_from_config",
     "make_default_capability_registry",

@@ -346,7 +346,7 @@ local model-backed agent without rewriting logging, replay, or memory.
 of a monolithic action loop. The default order is:
 
 ```text
-done_check -> context.build -> decision -> permission -> action.execute -> stop_check
+done_check -> context.build -> tool.use -> decision -> permission -> action.execute -> stop_check
 ```
 
 Each stage receives a mutable `LoopState` and a `LoopRuntime` with access to the
@@ -372,7 +372,7 @@ pipeline.insert_before("decision", ReflectStage())
 result = thread.run_episode(env, agent, pipeline=pipeline)
 ```
 
-This is the seam for planner, subagent, sandbox, recovery, and context-building
+This is the seam for planner, tool use, subagent, sandbox, recovery, and context-building
 stages to participate in the loop directly.
 
 Recovery is also part of the pipeline. When a stage fails, `StagePipeline`
@@ -395,7 +395,7 @@ result = thread.run_episode(env, agent, pipeline=pipeline)
 That pipeline runs:
 
 ```text
-done_check -> context.build -> perception -> exploration -> planning -> decision -> permission -> action.execute -> stop_check
+done_check -> context.build -> tool.use -> perception -> exploration -> planning -> decision -> permission -> action.execute -> stop_check
 ```
 
 The perception/exploration/planning stages call the registered
@@ -430,6 +430,49 @@ commands and working directories, and returns JSON-friendly `SandboxResult`
 objects. It is a bounded local process runner, not a container security
 boundary; stronger Docker/E2B-style providers should implement the same
 `Sandbox` protocol later.
+
+## Tool Calling
+
+Environment actions such as `ACTION6(x, y)` remain ordinary `Action` objects.
+Runtime capabilities that help the agent reason can be exposed as tools:
+
+- `observe_objects`: connected-component summary for the current frame;
+- `propose_actions`: untried candidate ARC actions;
+- `search_memory`: durable memory search;
+- `write_note`: append to working memory;
+- `delegate`: call a registered subagent through `DelegationManager`.
+
+Tools are registered with `ToolSpec`, called with `ToolCall`, and normalized into
+`ToolResult` by `ToolDispatcher`. The default `StagePipeline` includes
+`ToolUseStage`, which checks whether the agent implements `choose_tools(...)`.
+If it does, tool calls run before action selection, emit `tool.requested`,
+`tool.completed`, and `tool.failed`, write trace spans, and store results under
+`LoopState.metadata["tool_results"]`.
+
+```python
+from arc_harness import Action, ActionType, ToolCall
+
+class ToolAwareAgent:
+    def choose_tools(self, frames, latest_frame, memory, tools):
+        return [
+            ToolCall("observe_objects", {"limit": 8}),
+            ToolCall("propose_actions", {"limit": 4}),
+            ToolCall("write_note", {"text": "checked objects before acting"}),
+        ]
+
+    def choose_action(self, frames, latest_frame, memory):
+        return Action(ActionType.ACTION6, (1, 0))
+```
+
+Tools can also be run directly from a thread:
+
+```python
+result = thread.run_tool({"name": "observe_objects", "arguments": {"limit": 4}}, frame=frame)
+print(result.output)
+```
+
+Custom tools can be added by registering a callable with a `ToolRegistry` and
+passing `ToolDispatcher(registry, permissions={...})` to `ArcThread(tools=...)`.
 
 ## Context Management
 
@@ -638,6 +681,8 @@ This release is a harness foundation. It intentionally includes:
 - configurable episode running via `RunnerConfig`;
 - structured event streaming;
 - stage-based agent loop with insert/replace pipeline stages;
+- tool specs, calls, results, registry, dispatcher, and `ToolUseStage`;
+- built-in ARC tools for objects, action proposals, memory search, notes, and delegation;
 - recovery policy for retry/replan/fallback/abort after stage failures;
 - planner stages for perception -> exploration -> planning -> decision;
 - deterministic ARC state compression for objects, action maps, plans, and recovery notes;

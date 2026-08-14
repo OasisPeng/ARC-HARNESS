@@ -17,6 +17,7 @@ from .hooks import HookManager
 from .delegation import DelegationManager
 from .loop_stages import LoopRuntime, LoopState, StagePipeline
 from .memory import MemoryManager
+from .tools import ToolDispatcher
 from .tracing import Trace, TraceStore
 from .validation import validate_frame
 
@@ -55,6 +56,7 @@ class EpisodeRunner:
         guardrails: list | None = None,
         pipeline: StagePipeline | None = None,
         delegation: DelegationManager | None = None,
+        tools: ToolDispatcher | None = None,
     ) -> None:
         self.memory = memory
         self.hooks = hooks or HookManager()
@@ -63,6 +65,7 @@ class EpisodeRunner:
         self.guardrails = list(guardrails or [])
         self.pipeline = pipeline or StagePipeline()
         self.delegation = delegation
+        self.tools = tools
 
     def run(
         self,
@@ -130,6 +133,7 @@ class EpisodeRunner:
                 root_span=root_span,
                 checkpoints=self.checkpoints,
                 delegation=self.delegation,
+                tools=self.tools,
             )
 
             for step in range(run_config.max_steps):

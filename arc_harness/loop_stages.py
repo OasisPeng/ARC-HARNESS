@@ -18,6 +18,7 @@ from .hooks import HookManager
 from .memory import MemoryManager
 from .policy import Decision, HookDecision
 from .recovery import DefaultRecoveryPolicy, RecoveryDecision, RecoveryKind, RecoveryPolicy
+from .tools import ToolCall, ToolContext, ToolDispatcher
 from .tracing import Trace
 from .validation import validate_action, validate_frame
 
@@ -82,6 +83,7 @@ class LoopRuntime:
     root_span: Any
     checkpoints: CheckpointStore | None = None
     delegation: DelegationManager | None = None
+    tools: ToolDispatcher | None = None
     events: list[AgentEvent] = field(default_factory=list)
 
     def emit(self, event_type: str, episode_id: str, payload: dict[str, Any] | None = None) -> None:
@@ -296,6 +298,47 @@ class DecisionStage:
         return state
 
 
+class ToolUseStage:
+    """Run optional agent-requested tools before action selection."""
+
+    name = "tool.use"
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        chooser = getattr(runtime.agent, "choose_tools", None)
+        if chooser is None:
+            state.metadata.setdefault("tool_results", [])
+            return state
+        dispatcher = runtime.tools or ToolDispatcher.with_default_tools()
+        raw_calls = chooser(runtime.memory.working.frames, state.frame, runtime.memory, dispatcher.registry)
+        calls = [ToolCall.from_value(call) for call in raw_calls or []]
+        if not calls:
+            state.metadata.setdefault("tool_results", [])
+            return state
+
+        context = ToolContext(
+            memory=runtime.memory,
+            frame=state.frame,
+            frames=runtime.memory.working.frames,
+            delegation=runtime.delegation,
+            metadata={"episode_id": state.episode_id, "step": state.step},
+        )
+        results = []
+        for call in calls:
+            runtime.emit("tool.requested", state.episode_id, {"step": state.step, "call": call.to_dict()})
+            span = runtime.trace.start_span("tool.dispatch", parent_id=runtime.root_span.span_id, metadata={"step": state.step, "tool": call.name, "call_id": call.call_id})
+            result = dispatcher.dispatch(call, context)
+            span.finish({"ok": result.ok, "error": result.error})
+            results.append(result)
+            event_name = "tool.completed" if result.ok else "tool.failed"
+            runtime.emit(event_name, state.episode_id, {"step": state.step, "result": result.to_dict()})
+            if result.ok:
+                runtime.memory.add_note(f"Tool {result.name} returned for step {state.step}.")
+            else:
+                runtime.memory.record_failure(f"Tool {result.name} failed at step {state.step}: {result.error}", durable=False)
+        state.metadata["tool_results"] = [result.to_dict() for result in results]
+        return state
+
+
 class PerceptionStage:
     name = "perception"
 
@@ -471,6 +514,7 @@ def default_loop_stages() -> list[LoopStage]:
     return [
         DoneCheckStage(),
         BuildContextStage(),
+        ToolUseStage(),
         DecisionStage(),
         PermissionStage(),
         ActionExecutionStage(),
@@ -482,6 +526,7 @@ def delegating_planner_loop_stages(*, delegation_config: DelegationConfig | None
     return [
         DoneCheckStage(),
         BuildContextStage(),
+        ToolUseStage(),
         PerceptionStage(config=delegation_config),
         ExplorationStage(config=delegation_config),
         PlanningStage(config=delegation_config),
