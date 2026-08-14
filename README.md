@@ -336,6 +336,19 @@ os.environ["ARC_HARNESS_AGENT"] = "model_config"
 os.environ["ARC_HARNESS_MODEL_CONFIG"] = "/kaggle/input/arc-agent/model.json"
 ```
 
+Local smoke test with a project virtual environment:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install torch transformers accelerate huggingface_hub safetensors
+.venv/bin/python -c 'from huggingface_hub import snapshot_download; snapshot_download(repo_id="Qwen/Qwen2.5-0.5B-Instruct", local_dir="data/models/qwen2.5-0.5b-instruct", allow_patterns=["*.json","*.safetensors","*.model","*.txt","*.py","*.md"])'
+.venv/bin/python scripts/run_qwen_smoke.py --model-path data/models/qwen2.5-0.5b-instruct
+```
+
+The smoke test must finish with `status: WIN` and an empty `failures` list. The
+model directory lives under `data/`, which is ignored by git and mirrors the
+offline `/kaggle/input/...` model-mount shape.
+
 ```python
 from arc_harness import CallableModel, ModelBackedAgent, ModelOutput
 

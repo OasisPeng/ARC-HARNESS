@@ -810,6 +810,19 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(output.best_action(), Action(ActionType.ACTION6, (1, 0)))
         self.assertAlmostEqual(output.confidence, 0.88)
 
+    def test_qwen_local_ranker_recovers_from_partial_ranked_json(self) -> None:
+        ranker = QwenLocalRanker("/tmp/not-loaded", load_on_init=False, tokenizer=object(), model=object())
+        candidates = [
+            CandidateAction(0, Action(ActionType.ACTION6, (1, 0)), "target"),
+            CandidateAction(1, Action(ActionType.ACTION1), "simple"),
+        ]
+        output = ranker._parse_response(
+            '```json\n{"ranked_candidates":[{"candidate_id":0,"score":0.91,"reason":"target"},\n',
+            candidates,
+        )
+        self.assertEqual(output.best_action(), Action(ActionType.ACTION6, (1, 0)))
+        self.assertAlmostEqual(output.confidence, 0.91)
+
     def test_model_config_loads_json_policy_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             policy_path = Path(tmp) / "policy.json"

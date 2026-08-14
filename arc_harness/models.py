@@ -266,7 +266,9 @@ class QwenLocalRanker:
         return (
             "You rank candidate actions for an ARC-AGI-3 game. "
             "Pick actions that maximize information gain, avoid repeated failures, and progress toward WIN. "
-            "Return only JSON like {\"ranked_candidates\":[{\"candidate_id\":0,\"score\":0.9,\"reason\":\"...\"}]}.\n"
+            "Return only one compact JSON object for the best action: "
+            "{\"candidate_id\":0,\"score\":0.9,\"reason\":\"...\"}. "
+            "Do not return a list, markdown, or extra prose.\n"
             f"{json.dumps(payload, ensure_ascii=True)}"
         )
 
@@ -509,13 +511,28 @@ def _extract_json(text: str) -> Any:
         pass
     match = re.search(r"```(?:json)?\s*(.*?)```", stripped, flags=re.DOTALL)
     if match:
-        return json.loads(match.group(1).strip())
+        fenced = match.group(1).strip()
+        try:
+            return json.loads(fenced)
+        except json.JSONDecodeError:
+            fallback = _extract_rankings_from_partial_text(fenced)
+            if fallback:
+                return fallback
     object_match = re.search(r"\{.*\}", stripped, flags=re.DOTALL)
     if object_match:
-        return json.loads(object_match.group(0))
+        obj = object_match.group(0)
+        try:
+            return json.loads(obj)
+        except json.JSONDecodeError:
+            fallback = _extract_rankings_from_partial_text(obj)
+            if fallback:
+                return fallback
     integer_match = re.search(r"-?\d+", stripped)
     if integer_match:
         return {"candidate_id": int(integer_match.group(0))}
+    fallback = _extract_rankings_from_partial_text(stripped)
+    if fallback:
+        return fallback
     raise ValueError(f"Could not parse model JSON response: {text!r}")
 
 
@@ -532,3 +549,20 @@ def _ranked_candidate_rows(parsed: Any) -> list[dict[str, Any]]:
         if "candidate_id" in parsed:
             return [parsed]
     raise ValueError(f"Model response did not contain candidate rankings: {parsed!r}")
+
+
+def _extract_rankings_from_partial_text(text: str) -> dict[str, Any] | None:
+    rows: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for match in re.finditer(r'"?candidate_id"?\s*:\s*(-?\d+)', text):
+        candidate_id = int(match.group(1))
+        if candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        window = text[match.start() : match.start() + 240]
+        score_match = re.search(r'"?score"?\s*:\s*([0-9.]+)', window)
+        score = float(score_match.group(1)) if score_match else max(0.0, 1.0 - len(rows) * 0.05)
+        rows.append({"candidate_id": candidate_id, "score": score, "reason": "parsed from partial model response"})
+    if rows:
+        return {"ranked_candidates": rows}
+    return None
