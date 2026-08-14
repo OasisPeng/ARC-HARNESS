@@ -17,6 +17,7 @@ from .environment import ArcEnvironment
 from .events import AgentEvent, utc_now
 from .hooks import Hook, HookManager
 from .loop import EpisodeResult, EpisodeRunner
+from .loop_stages import StagePipeline
 from .memory import DurableMemory, MemoryManager
 from .tracing import Trace, TraceStore
 
@@ -34,6 +35,7 @@ class ArcThread:
     hooks: list[Hook] = field(default_factory=list)
     guardrails: list = field(default_factory=list)
     delegation: DelegationManager | None = None
+    pipeline: StagePipeline | None = None
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -93,6 +95,7 @@ class ArcThread:
         agent: ArcAgent,
         max_steps: int = 256,
         config: RunnerConfig | None = None,
+        pipeline: StagePipeline | None = None,
     ) -> EpisodeResult:
         run_config = config or RunnerConfig.from_value(max_steps)
         runner = EpisodeRunner(
@@ -101,6 +104,7 @@ class ArcThread:
             CheckpointStore(self.root / "checkpoints", enabled=run_config.checkpoint),
             TraceStore(self.root / "traces", enabled=run_config.tracing),
             self.guardrails,
+            pipeline=pipeline or self.pipeline,
         )
         result = runner.run(env, agent, config=run_config)
         self.history.append(result.to_dict())
@@ -113,6 +117,7 @@ class ArcThread:
         agent: ArcAgent,
         max_steps: int = 256,
         config: RunnerConfig | None = None,
+        pipeline: StagePipeline | None = None,
     ) -> Iterator[dict]:
         run_config = config or RunnerConfig.from_value(max_steps)
         runner = EpisodeRunner(
@@ -121,6 +126,7 @@ class ArcThread:
             CheckpointStore(self.root / "checkpoints", enabled=run_config.checkpoint),
             TraceStore(self.root / "traces", enabled=run_config.tracing),
             self.guardrails,
+            pipeline=pipeline or self.pipeline,
         )
         completed: EpisodeResult | None = None
         event_dicts: list[dict] = []

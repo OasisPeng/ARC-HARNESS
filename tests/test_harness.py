@@ -39,12 +39,15 @@ from arc_harness import (
     OfficialArcEnvironment,
     OfficialSmokeRunner,
     LocalSubprocessSandbox,
+    LoopRuntime,
+    LoopState,
     ProviderDescriptor,
     RunnerConfig,
     RuleLearningAgent,
     SandboxCommand,
     SandboxPolicy,
     SandboxPolicyError,
+    StagePipeline,
     SubAgentResult,
     build_kaggle_package,
     build_submission_manifest,
@@ -121,6 +124,16 @@ class FakeCapabilityProvider:
         supports=("predict", "offline"),
         metadata={"purpose": "test"},
     )
+
+
+class NoteStage:
+    name = "note"
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        runtime.memory.add_note(f"custom stage at step {state.step}")
+        state.metadata["custom_stage_seen"] = True
+        runtime.emit("custom.stage", state.episode_id, {"step": state.step})
+        return state
 
 
 class FakeOfficialAction:
@@ -238,6 +251,8 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(events[0]["type"], "episode.started")
             self.assertEqual(events[0]["payload"]["config"]["metadata"]["game"], "tiny")
             self.assertEqual(events[-1]["type"], "episode.completed")
+            self.assertIn("stage.started", [event["type"] for event in events])
+            self.assertIn("stage.completed", [event["type"] for event in events])
             episode_id = events[-1]["episode_id"]
             replay = thread.read_episode(episode_id)
             self.assertEqual(replay[0]["type"], "summary")
@@ -252,6 +267,19 @@ class HarnessTests(unittest.TestCase):
             trace = thread.read_trace(trace_id)
             self.assertEqual(trace["group_id"], episode_id)
             self.assertGreaterEqual(len(trace["spans"]), 3)
+
+    def test_stage_pipeline_exposes_order_and_allows_insertion(self) -> None:
+        pipeline = StagePipeline()
+        self.assertEqual(pipeline.names(), ("done_check", "decision", "permission", "action.execute", "stop_check"))
+        pipeline.insert_before("decision", NoteStage())
+        self.assertEqual(pipeline.names()[1], "note")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp, pipeline=pipeline)
+            events = list(thread.run_streamed(TinyEnv(), HeuristicAgent(), config=RunnerConfig(max_steps=4)))
+            self.assertIn("custom.stage", [event["type"] for event in events])
+            self.assertIn("custom stage at step 0", thread.memory.working.notes)
+            self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
 
     def test_action_budget_hook_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

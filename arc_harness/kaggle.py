@@ -32,6 +32,7 @@ CORE_PACKAGE_FILES = (
     "hooks.py",
     "kaggle.py",
     "loop.py",
+    "loop_stages.py",
     "memory.py",
     "memory_policy.py",
     "memory_store.py",

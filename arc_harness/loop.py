@@ -6,7 +6,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Iterator
 
-from .actions import StepRecord
 from .agent import ArcAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
@@ -15,10 +14,10 @@ from .errors import ErrorContext
 from .events import AgentEvent
 from .guardrails import GuardrailDecision
 from .hooks import HookManager
+from .loop_stages import LoopRuntime, LoopState, StagePipeline
 from .memory import MemoryManager
-from .policy import Decision
 from .tracing import Trace, TraceStore
-from .validation import validate_action, validate_frame
+from .validation import validate_frame
 
 
 @dataclass
@@ -44,7 +43,7 @@ class EpisodeResult:
 
 
 class EpisodeRunner:
-    """Run observe -> choose_action -> step -> remember until done or budget."""
+    """Run an episode through a composable stage pipeline."""
 
     def __init__(
         self,
@@ -53,12 +52,14 @@ class EpisodeRunner:
         checkpoints: CheckpointStore | None = None,
         traces: TraceStore | None = None,
         guardrails: list | None = None,
+        pipeline: StagePipeline | None = None,
     ) -> None:
         self.memory = memory
         self.hooks = hooks or HookManager()
         self.checkpoints = checkpoints
         self.traces = traces
         self.guardrails = list(guardrails or [])
+        self.pipeline = pipeline or StagePipeline()
 
     def run(
         self,
@@ -99,6 +100,7 @@ class EpisodeRunner:
         proposed_action = None
         current_step: int | None = None
         phase = "reset"
+        runtime: LoopRuntime | None = None
         trace = Trace(run_config.trace_workflow_name, group_id=episode_id, metadata={"episode_id": episode_id, **run_config.metadata})
         root_span = trace.start_span("episode", metadata={"max_steps": run_config.max_steps})
 
@@ -114,74 +116,56 @@ class EpisodeRunner:
             self.hooks.after_observe(latest)
             yield from self._emit(AgentEvent("frame.observed", episode_id, {"frame": latest.to_dict(include_grid=False)}))
             agent.on_episode_start(self.memory)
+            runtime = LoopRuntime(
+                env=env,
+                agent=agent,
+                memory=self.memory,
+                hooks=self.hooks,
+                guardrails=self.guardrails,
+                config=run_config,
+                trace=trace,
+                root_span=root_span,
+                checkpoints=self.checkpoints,
+            )
 
             for step in range(run_config.max_steps):
                 current_step = step
-                frames = self.memory.working.frames
-                if agent.is_done(frames, latest, self.memory):
-                    result = self._finish(agent, episode_id, latest.status, step, True, total_reward, run_config, trace=trace, root_span=root_span)
-                    yield from self._emit(AgentEvent("episode.completed", episode_id, {"result": result}))
-                    return
-
-                phase = "choose_action"
-                action_span = trace.start_span("agent.choose_action", parent_id=root_span.span_id, metadata={"step": step})
-                action = agent.choose_action(frames, latest, self.memory)
-                action_span.finish({"action": action.to_dict() if hasattr(action, "to_dict") else repr(action)})
-                proposed_action = action
-                if run_config.validate_actions:
-                    validate_action(action, latest)
-                action = self._run_action_guardrails(step, latest, action)
-                yield from self._emit(AgentEvent("action.proposed", episode_id, {"step": step, "action": action.to_dict()}))
-                phase = "before_action"
-                decision = self.hooks.before_action(step, latest, action)
-                if decision.decision in {Decision.BLOCK, Decision.ASK}:
-                    self.memory.record_failure(f"Action blocked at step {step}: {decision.reason}", durable=False)
-                    event_name = "action.permission_requested" if decision.decision == Decision.ASK else "action.blocked"
-                    status = "WAITING_FOR_APPROVAL" if decision.decision == Decision.ASK else "BLOCKED"
-                    yield from self._emit(AgentEvent(event_name, episode_id, {"step": step, "reason": decision.reason}))
-                    result = self._finish(agent, episode_id, status, step, False, total_reward, run_config, trace=trace, root_span=root_span)
-                    yield from self._emit(AgentEvent("episode.completed", episode_id, {"result": result}))
-                    return
-                action = decision.action or action
-                proposed_action = action
-                if run_config.validate_actions:
-                    validate_action(action, latest)
-                action = self._run_action_guardrails(step, latest, action)
-                if decision.decision == Decision.REWRITE:
-                    yield from self._emit(AgentEvent("action.rewritten", episode_id, {"step": step, "action": action.to_dict(), "reason": decision.reason}))
-                phase = "env_step"
-                env_span = trace.start_span("env.step", parent_id=root_span.span_id, metadata={"step": step, "action": action.to_dict()})
-                result = env.step(action)
-                env_span.finish({"status": result.frame.status, "reward": result.reward, "done": result.done})
-                if run_config.validate_frames:
-                    validate_frame(result.frame)
-                self._run_result_guardrails(step, result)
-                record = StepRecord(step=step, before=latest, action=action, after=result.frame, reward=result.reward, info=result.info)
-                self.memory.working.remember_step(record)
-                self._checkpoint(run_config, episode_id, step, result.frame)
-                phase = "after_action"
-                self.hooks.after_action(record)
-                yield from self._emit(AgentEvent("action.completed", episode_id, {"record": record.to_dict(include_grids=False)}))
-                latest = result.frame
-                total_reward += result.reward
-
-                if result.done or agent.is_done(self.memory.working.frames, latest, self.memory):
-                    episode_result = self._finish(agent, episode_id, latest.status, step + 1, True, total_reward, run_config, trace=trace, root_span=root_span)
+                state = LoopState(
+                    episode_id=episode_id,
+                    step=step,
+                    frame=latest,
+                    total_reward=total_reward,
+                    metadata={"frames": self.memory.working.frames},
+                )
+                state = self.pipeline.run_step(state, runtime)
+                for event in runtime.drain_events():
+                    yield event
+                latest = state.frame
+                total_reward = state.total_reward
+                proposed_action = state.proposed_action
+                phase = state.phase
+                if state.stop:
+                    episode_result = self._finish(
+                        agent,
+                        episode_id,
+                        state.status,
+                        len(self.memory.working.steps),
+                        state.done,
+                        total_reward,
+                        run_config,
+                        trace=trace,
+                        root_span=root_span,
+                    )
                     yield from self._emit(AgentEvent("episode.completed", episode_id, {"result": episode_result}))
                     return
 
-                if self.memory.working.detects_loop(window=run_config.loop_window):
-                    self.memory.record_failure(f"Loop detected in episode {episode_id} at step {step}.", durable=False)
-                    yield from self._emit(AgentEvent("loop.detected", episode_id, {"step": step}))
-                    if run_config.stop_on_loop:
-                        episode_result = self._finish(agent, episode_id, "LOOP_DETECTED", step + 1, False, total_reward, run_config, trace=trace, root_span=root_span)
-                        yield from self._emit(AgentEvent("episode.completed", episode_id, {"result": episode_result}))
-                        return
-
-            episode_result = self._finish(agent, episode_id, latest.status, run_config.max_steps, False, total_reward, run_config, trace=trace, root_span=root_span)
+            episode_result = self._finish(agent, episode_id, latest.status, len(self.memory.working.steps), False, total_reward, run_config, trace=trace, root_span=root_span)
             yield from self._emit(AgentEvent("episode.completed", episode_id, {"result": episode_result}))
             return
         except BaseException as exc:
+            if runtime is not None:
+                for event in runtime.drain_events():
+                    yield event
             self.hooks.on_error(episode_id, exc)
             latest_frame = latest if hasattr(latest, "to_dict") else None
             error_context = ErrorContext.from_exception(
@@ -262,19 +246,6 @@ class EpisodeRunner:
         if config.checkpoint and self.checkpoints is not None:
             self.checkpoints.write(episode_id, step, frame, self.memory.working.steps, extra={"config": config.to_dict()})
 
-    def _run_action_guardrails(self, step: int, frame, action):
-        next_action = action
-        for guardrail in self.guardrails:
-            method = getattr(guardrail, "check_action", None)
-            if not method:
-                continue
-            result = method(step, frame, next_action)
-            if result.decision == GuardrailDecision.FAIL:
-                raise RuntimeError(f"Action guardrail failed: {result.reason}")
-            if result.decision == GuardrailDecision.REWRITE and result.action is not None:
-                next_action = result.action
-        return next_action
-
     def _run_frame_guardrails(self, frame, phase: str) -> None:
         for guardrail in self.guardrails:
             method = getattr(guardrail, "check_frame", None)
@@ -283,12 +254,3 @@ class EpisodeRunner:
             result = method(frame, phase)
             if result.decision == GuardrailDecision.FAIL:
                 raise RuntimeError(f"Frame guardrail failed: {result.reason}")
-
-    def _run_result_guardrails(self, step: int, result) -> None:
-        for guardrail in self.guardrails:
-            method = getattr(guardrail, "check_result", None)
-            if not method:
-                continue
-            outcome = method(step, result)
-            if outcome.decision == GuardrailDecision.FAIL:
-                raise RuntimeError(f"Result guardrail failed: {outcome.reason}")

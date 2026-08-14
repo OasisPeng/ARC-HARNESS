@@ -27,6 +27,7 @@ arc_harness/
   hooks.py         Hook interface and built-in logging hook.
   kaggle.py        Kaggle readiness checks and submission manifest.
   loop.py          EpisodeRunner: the agent loop.
+  loop_stages.py   Stage-based loop state, runtime, and pipeline.
   memory.py        Layered memory stores.
   memory_policy.py Policy-only guidance for when/how to retrieve memory.
   memory_store.py  SQLite memory store with hybrid search.
@@ -318,7 +319,7 @@ local model-backed agent without rewriting logging, replay, or memory.
 
 | Source | Borrowed capability | Harness implementation |
 |---|---|---|
-| Claude Code SDK | explicit agent loop | `EpisodeRunner.run_events()` |
+| Claude Code SDK | explicit agent loop | `EpisodeRunner.run_events()` + `StagePipeline` |
 | Claude Code SDK | hooks / permissions | `HookManager`, `HookDecision`, `ActionBudgetHook` |
 | Claude Code SDK | hook matchers | `HookMatcher(event=..., action=..., status=...)` |
 | OpenAI Agents SDK | event stream and tracing | `AgentEvent`, `Trace`, `Span`, `TraceStore` |
@@ -337,6 +338,41 @@ local model-backed agent without rewriting logging, replay, or memory.
 | Claude Code compaction | stable instructions re-injected after compaction | `MemoryPolicy` policy section |
 | DeepSeek Harness | capability seams / providers | `CapabilityRegistry`, `ProviderDescriptor` |
 | DeepSeek Harness | sandbox as pluggable backend | `LocalSubprocessSandbox` capability provider |
+
+## Stage-Based Agent Loop
+
+`EpisodeRunner` now drives each step through an explicit `StagePipeline` instead
+of a monolithic action loop. The default order is:
+
+```text
+done_check -> decision -> permission -> action.execute -> stop_check
+```
+
+Each stage receives a mutable `LoopState` and a `LoopRuntime` with access to the
+environment, agent, memory, hooks, guardrails, trace, checkpoint store, and
+event emitter. Stages emit `stage.started`, `stage.completed`, and
+`stage.failed` lifecycle events, while preserving domain events such as
+`action.proposed`, `action.rewritten`, `action.completed`, and `loop.detected`.
+
+Custom stages can be inserted without changing the runner:
+
+```python
+from arc_harness import LoopState, LoopRuntime, StagePipeline
+
+class ReflectStage:
+    name = "reflect"
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        runtime.memory.add_note(f"reflect before step {state.step}")
+        return state
+
+pipeline = StagePipeline()
+pipeline.insert_before("decision", ReflectStage())
+result = thread.run_episode(env, agent, pipeline=pipeline)
+```
+
+This is the seam for planner, subagent, sandbox, recovery, and context-building
+stages to participate in the loop directly.
 
 ## Capabilities And Sandbox
 
@@ -530,6 +566,7 @@ This release is a harness foundation. It intentionally includes:
 - official public-game smoke runner via `OfficialSmokeRunner`;
 - configurable episode running via `RunnerConfig`;
 - structured event streaming;
+- stage-based agent loop with insert/replace pipeline stages;
 - action permission hooks;
 - hook matchers for event/action/status filtering;
 - guardrails for action/frame/result checks;

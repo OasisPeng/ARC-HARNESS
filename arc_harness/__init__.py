@@ -42,6 +42,19 @@ from .guardrails import (
 from .hooks import ActionBudgetHook, Hook, HookManager, HookMatcher, JsonlTraceHook
 from .kaggle import KagglePackage, KaggleReadinessReport, ReadinessCheck, build_kaggle_package, build_submission_manifest, check_kaggle_readiness
 from .loop import EpisodeResult, EpisodeRunner
+from .loop_stages import (
+    ActionExecutionStage,
+    BuildContextStage,
+    DecisionStage,
+    DoneCheckStage,
+    LoopRuntime,
+    LoopStage,
+    LoopState,
+    PermissionStage,
+    StagePipeline,
+    StopCheckStage,
+    default_loop_stages,
+)
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
 from .memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
@@ -80,6 +93,7 @@ __all__ = [
     "ActionBudgetHook",
     "ActionGuardrail",
     "ActionType",
+    "ActionExecutionStage",
     "ArcAgi3Config",
     "ArcAgent",
     "ArcEnvironment",
@@ -89,6 +103,7 @@ __all__ = [
     "CapabilityRegistry",
     "CheckpointStore",
     "CallableModel",
+    "BuildContextStage",
     "CoordinateBoundsGuardrail",
     "ContextBudget",
     "ContextBundle",
@@ -98,6 +113,8 @@ __all__ = [
     "ContextSection",
     "DEFAULT_MODEL_REGISTRY",
     "DEFAULT_CAPABILITY_REGISTRY",
+    "DecisionStage",
+    "DoneCheckStage",
     "DurableMemory",
     "AgentEvent",
     "Decision",
@@ -134,6 +151,9 @@ __all__ = [
     "KagglePackage",
     "KaggleReadinessReport",
     "LocalSubprocessSandbox",
+    "LoopRuntime",
+    "LoopStage",
+    "LoopState",
     "MemoryEntry",
     "MemoryManager",
     "MemoryPolicy",
@@ -149,6 +169,7 @@ __all__ = [
     "OfficialSmokeResult",
     "OfficialSmokeRunner",
     "PerceptionSubAgent",
+    "PermissionStage",
     "PlannerSubAgent",
     "ProviderDescriptor",
     "ReplayEpisode",
@@ -167,7 +188,9 @@ __all__ = [
     "SearchResult",
     "MaxChangedCellsGuardrail",
     "Span",
+    "StagePipeline",
     "StepRecord",
+    "StopCheckStage",
     "SubAgent",
     "SubAgentResult",
     "SubTask",
@@ -183,6 +206,7 @@ __all__ = [
     "coerce_official_frame",
     "create_official_environment",
     "discover_official_games",
+    "default_loop_stages",
     "load_model_from_config",
     "make_default_capability_registry",
     "resolve_official_action",
