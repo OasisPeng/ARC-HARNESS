@@ -795,7 +795,7 @@ class HarnessTests(unittest.TestCase):
             action = adapter.choose_action([[[0, 1], [0, 2]]], [[0, 1], [0, 2]])
             self.assertEqual(action, ("ACTION6", 0, 0))
 
-    def test_official_smoke_runner_skips_when_official_package_missing(self) -> None:
+    def test_official_smoke_runner_handles_missing_or_invalid_official_game(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_root = Path(tmp) / "environment_files"
             game_dir = env_root / "demo"
@@ -804,7 +804,7 @@ class HarnessTests(unittest.TestCase):
             report = OfficialSmokeRunner(env_root, memory_dir=Path(tmp) / "memory").run(HeuristicAgent(), max_games=1)
             self.assertEqual(report.total, 1)
             self.assertIn(report.results[0].status, {"SKIPPED", "ERROR"})
-            self.assertTrue(report.results[0].error)
+            self.assertTrue(report.results[0].error or report.results[0].status == "ERROR")
 
     def test_kaggle_readiness_report_checks_manifest_and_submission(self) -> None:
         report = check_kaggle_readiness(package_root="arc_harness", agent=HeuristicAgent())

@@ -58,7 +58,9 @@ class WorkingMemory:
     def detects_loop(self, window: int = 6) -> bool:
         if len(self.frames) < window * 2:
             return False
-        return self.frames[-window:] == self.frames[-window * 2:-window]
+        recent = [_frame_signature(frame) for frame in self.frames[-window:]]
+        previous = [_frame_signature(frame) for frame in self.frames[-window * 2:-window]]
+        return recent == previous
 
 
 @dataclass(frozen=True)
@@ -368,6 +370,10 @@ def _step_to_json(record: StepRecord) -> dict:
         "changed_cells": record.changed_cells,
         "info": record.info,
     }
+
+
+def _frame_signature(frame: Frame) -> tuple[str, tuple[tuple[int, ...], ...]]:
+    return frame.status, frame.grid
 
 
 def _slugify(name: str) -> str:

@@ -171,20 +171,27 @@ def _resolve_operation_mode(name: str) -> Any:
 def _extract_grid(raw: Any) -> Any:
     if isinstance(raw, dict):
         for key in ("grid", "frame", "cells", "observation"):
-            if key in raw and _looks_like_grid(raw[key]):
-                return raw[key]
+            if key in raw:
+                grid = _coerce_grid_like(raw[key])
+                if grid is not None:
+                    return grid
         state = raw.get("state")
-        if _looks_like_grid(state):
-            return state
+        grid = _coerce_grid_like(state)
+        if grid is not None:
+            return grid
     for attr in ("grid", "frame", "cells", "observation"):
         if hasattr(raw, attr):
             value = getattr(raw, attr)
-            if _looks_like_grid(value):
-                return value
-    if hasattr(raw, "state") and _looks_like_grid(getattr(raw, "state")):
-        return getattr(raw, "state")
-    if _looks_like_grid(raw):
-        return raw
+            grid = _coerce_grid_like(value)
+            if grid is not None:
+                return grid
+    if hasattr(raw, "state"):
+        grid = _coerce_grid_like(getattr(raw, "state"))
+        if grid is not None:
+            return grid
+    grid = _coerce_grid_like(raw)
+    if grid is not None:
+        return grid
     raise ValueError(f"Could not extract grid from official frame {raw!r}.")
 
 
@@ -227,19 +234,32 @@ def _action_name(value: Any) -> str:
 
 
 def _looks_like_grid(value: Any) -> bool:
+    return _coerce_grid_like(value) is not None
+
+
+def _coerce_grid_like(value: Any) -> Any | None:
     if value is None or isinstance(value, (str, bytes, dict)):
-        return False
+        return None
+    if hasattr(value, "shape") and len(getattr(value, "shape", ())) == 2:
+        return value.tolist() if hasattr(value, "tolist") else value
     try:
         rows = list(value)
     except TypeError:
-        return False
+        return None
     if not rows:
-        return False
+        return None
+    if len(rows) == 1 and hasattr(rows[0], "shape") and len(getattr(rows[0], "shape", ())) == 2:
+        return rows[0].tolist() if hasattr(rows[0], "tolist") else rows[0]
+    if rows and all(hasattr(row, "shape") and len(getattr(row, "shape", ())) == 2 for row in rows):
+        latest = rows[-1]
+        return latest.tolist() if hasattr(latest, "tolist") else latest
     try:
         first = list(rows[0])
     except TypeError:
-        return False
-    return bool(first) and all(isinstance(cell, (int, float)) for cell in first)
+        return None
+    if not first or not all(isinstance(cell, (int, float)) for cell in first):
+        return None
+    return rows
 
 
 def _get_nested(obj: Any, path: str) -> Any:

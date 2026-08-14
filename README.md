@@ -172,6 +172,38 @@ python3 scripts/build_kaggle_package.py /tmp/arc-harness-kaggle
 The folder contains `arc_harness/`, a top-level `submission.py`, helper scripts,
 and `manifest.json`.
 
+Download the ARC Prize 2026 public data for local development:
+
+```bash
+python3 scripts/download_arc_prize_2026_data.py --output-dir data/arc-prize-2026-arc-agi-3
+```
+
+The command requires Kaggle CLI authentication and that the competition rules
+have been accepted on Kaggle. It downloads and extracts the public
+`environment_files/`, `arc_agi_3_wheels/`, and `ARC-AGI-3-Agents/` bundle.
+The `data/` directory is ignored by git because the public bundle is an external
+dataset, not source code.
+
+Run the current harness agent against public games:
+
+```bash
+python3 scripts/run_public_smoke.py \
+  --environment-files data/arc-prize-2026-arc-agi-3/environment_files \
+  --agent delegating \
+  --max-games 25 \
+  --max-steps 2
+```
+
+For local macOS development you may need to install the official core packages
+and compatible dependencies:
+
+```bash
+python3 -m pip install --user --no-deps \
+  data/arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arc_agi-0.9.8-py3-none-any.whl \
+  data/arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arcengine-0.9.3-py3-none-any.whl
+python3 -m pip install --user flask matplotlib pillow pydantic python-dotenv requests numpy
+```
+
 Check the copied package before submitting:
 
 ```bash

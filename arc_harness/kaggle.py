@@ -174,10 +174,20 @@ def _check_package_files(package_root: str | Path) -> ReadinessCheck:
 
 
 def _check_official_imports() -> ReadinessCheck:
-    modules = {name: importlib.util.find_spec(name) is not None for name in ("arc_agi", "arcengine")}
+    modules: dict[str, bool] = {}
+    errors: dict[str, str] = {}
+    for name in ("arc_agi", "arcengine"):
+        try:
+            if importlib.util.find_spec(name) is None:
+                raise ImportError(f"{name} not found")
+            __import__(name)
+            modules[name] = True
+        except Exception as exc:
+            modules[name] = False
+            errors[name] = repr(exc)
     ok = all(modules.values())
-    message = "official ARC-AGI-3 packages available" if ok else "official packages not installed in this runtime"
-    return ReadinessCheck("official_imports", ok, message, modules)
+    message = "official ARC-AGI-3 packages import successfully" if ok else "official packages not importable in this runtime"
+    return ReadinessCheck("official_imports", ok, message, {"modules": modules, "errors": errors})
 
 
 def _check_environment_files(environments_dir: str | Path) -> ReadinessCheck:
