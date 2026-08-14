@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,9 +11,12 @@ from arc_harness import (
     ActionType,
     ArcThread,
     CallableModel,
+    CapabilityError,
+    CapabilityRegistry,
     ContextBudget,
     ContextManager,
     CoordinateBoundsGuardrail,
+    DEFAULT_CAPABILITY_REGISTRY,
     KaggleReadinessReport,
     DelegatingPlannerAgent,
     DelegationConfig,
@@ -34,8 +38,13 @@ from arc_harness import (
     ModelOutput,
     OfficialArcEnvironment,
     OfficialSmokeRunner,
+    LocalSubprocessSandbox,
+    ProviderDescriptor,
     RunnerConfig,
     RuleLearningAgent,
+    SandboxCommand,
+    SandboxPolicy,
+    SandboxPolicyError,
     SubAgentResult,
     build_kaggle_package,
     build_submission_manifest,
@@ -104,6 +113,16 @@ class FlakyPerceptionSubAgent:
         return SubAgentResult(task.task_id, self.name, True, {"calls": self.calls}, "recovered", confidence=0.7)
 
 
+class FakeCapabilityProvider:
+    descriptor = ProviderDescriptor(
+        capability="model",
+        name="fake",
+        version="1.0",
+        supports=("predict", "offline"),
+        metadata={"purpose": "test"},
+    )
+
+
 class FakeOfficialAction:
     def __init__(self, name: str) -> None:
         self.name = name
@@ -133,6 +152,63 @@ class FakeOfficialEnv:
 
 
 class HarnessTests(unittest.TestCase):
+    def test_capability_registry_registers_and_requires_providers(self) -> None:
+        registry = CapabilityRegistry()
+        provider = FakeCapabilityProvider()
+        returned = registry.register(provider)
+        self.assertIs(returned, provider)
+        self.assertIs(registry.get("model", "fake"), provider)
+        self.assertIs(registry.require("model", "fake", supports=("predict",)), provider)
+        self.assertEqual(registry.capabilities(), ("model",))
+        self.assertEqual(registry.list("model")[0].metadata["purpose"], "test")
+
+        with self.assertRaises(CapabilityError):
+            registry.register(provider)
+        with self.assertRaises(CapabilityError):
+            registry.require("sandbox", "missing")
+        with self.assertRaises(CapabilityError):
+            registry.require("model", "fake", supports=("stream",))
+
+    def test_default_capability_registry_exposes_local_sandbox(self) -> None:
+        sandbox = DEFAULT_CAPABILITY_REGISTRY.require("sandbox", "local_subprocess", supports=("timeout",))
+        self.assertIsInstance(sandbox, LocalSubprocessSandbox)
+
+    def test_local_sandbox_runs_command_and_captures_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sandbox = LocalSubprocessSandbox(
+                SandboxPolicy(
+                    allowed_commands=(Path(sys.executable).name,),
+                    allowed_cwds=(tmp,),
+                    max_output_chars=200,
+                )
+            )
+            result = sandbox.run([sys.executable, "-c", "print('arc sandbox ok')"], cwd=tmp)
+            self.assertTrue(result.ok)
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("arc sandbox ok", result.stdout)
+            self.assertEqual(result.metadata["cwd"], str(Path(tmp).resolve()))
+
+    def test_local_sandbox_rejects_policy_violations(self) -> None:
+        sandbox = LocalSubprocessSandbox(SandboxPolicy(allowed_commands=("python",)))
+        with self.assertRaises(SandboxPolicyError):
+            sandbox.run("python -c 'print(1)'")
+        with self.assertRaises(SandboxPolicyError):
+            sandbox.run(["rm", "-rf", "/tmp/not-real"])
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            policy = SandboxPolicy(allowed_commands=(Path(sys.executable).name,), allowed_cwds=(Path(tmp) / "inside",))
+            scoped = LocalSubprocessSandbox(policy)
+            with self.assertRaises(SandboxPolicyError):
+                scoped.run([sys.executable, "-c", "print(1)"], cwd=outside)
+
+    def test_local_sandbox_returns_timeout_result(self) -> None:
+        sandbox = LocalSubprocessSandbox(SandboxPolicy(allowed_commands=(Path(sys.executable).name,), timeout_seconds=0.1))
+        result = sandbox.run(SandboxCommand([sys.executable, "-c", "import time; time.sleep(1)"]))
+        self.assertFalse(result.ok)
+        self.assertTrue(result.timed_out)
+        self.assertIsNone(result.exit_code)
+
     def test_thread_runs_and_persists_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             thread = ArcThread(memory_dir=tmp)

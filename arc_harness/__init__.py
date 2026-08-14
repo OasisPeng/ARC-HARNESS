@@ -4,6 +4,14 @@ __version__ = "0.4.0"
 
 from .actions import Action, ActionType, Frame, StepRecord
 from .agent import ArcAgent, DelegatingPlannerAgent, HandoffAgent, HeuristicAgent, RuleLearningAgent
+from .capabilities import (
+    DEFAULT_CAPABILITY_REGISTRY,
+    CapabilityError,
+    CapabilityRegistration,
+    CapabilityRegistry,
+    ProviderDescriptor,
+    make_default_capability_registry,
+)
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
 from .context import ContextBudget, ContextBundle, ContextInjector, ContextManager, ContextRole, ContextSection
@@ -61,6 +69,7 @@ from .official import (
 from .official_eval import OfficialSmokeReport, OfficialSmokeResult, OfficialSmokeRunner, discover_official_games
 from .policy import Decision, HookDecision
 from .replay import ReplayEpisode, ReplayStep
+from .sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
 from .thread import ArcThread
 from .tracing import Span, Trace, TraceStore
@@ -75,6 +84,9 @@ __all__ = [
     "ArcAgent",
     "ArcEnvironment",
     "ArcThread",
+    "CapabilityError",
+    "CapabilityRegistration",
+    "CapabilityRegistry",
     "CheckpointStore",
     "CallableModel",
     "CoordinateBoundsGuardrail",
@@ -85,6 +97,7 @@ __all__ = [
     "ContextRole",
     "ContextSection",
     "DEFAULT_MODEL_REGISTRY",
+    "DEFAULT_CAPABILITY_REGISTRY",
     "DurableMemory",
     "AgentEvent",
     "Decision",
@@ -120,6 +133,7 @@ __all__ = [
     "JsonlTraceHook",
     "KagglePackage",
     "KaggleReadinessReport",
+    "LocalSubprocessSandbox",
     "MemoryEntry",
     "MemoryManager",
     "MemoryPolicy",
@@ -136,12 +150,19 @@ __all__ = [
     "OfficialSmokeRunner",
     "PerceptionSubAgent",
     "PlannerSubAgent",
+    "ProviderDescriptor",
     "ReplayEpisode",
     "ReplayStep",
     "ReadinessCheck",
     "ResultGuardrail",
     "RuleLearningAgent",
     "RunnerConfig",
+    "Sandbox",
+    "SandboxCommand",
+    "SandboxError",
+    "SandboxPolicy",
+    "SandboxPolicyError",
+    "SandboxResult",
     "LightweightEmbeddingIndex",
     "SearchResult",
     "MaxChangedCellsGuardrail",
@@ -163,6 +184,7 @@ __all__ = [
     "create_official_environment",
     "discover_official_games",
     "load_model_from_config",
+    "make_default_capability_registry",
     "resolve_official_action",
     "validate_action",
     "validate_environment",

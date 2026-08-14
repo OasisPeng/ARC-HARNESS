@@ -18,6 +18,7 @@ Notebook or packaged as a small module.
 arc_harness/
   actions.py       Action and frame data structures.
   agent.py         Base ARC agent interface.
+  capabilities.py  Runtime capability registry and provider descriptors.
   environment.py   Minimal environment protocol.
   errors.py        Structured error context and validation exceptions.
   events.py        Structured event stream.
@@ -33,6 +34,7 @@ arc_harness/
   official.py      Optional official ARC-AGI-3 toolkit/environment adapter.
   official_eval.py Public official-game smoke runner.
   policy.py        Hook decisions: allow, rewrite, block.
+  sandbox.py       Bounded local subprocess sandbox provider.
   checkpoint.py    Latest-step checkpoint persistence.
   context.py       Budgeted context manager and injector.
   delegation.py    SubTask/SubAgent/SubAgentResult and dispatch manager.
@@ -333,6 +335,36 @@ local model-backed agent without rewriting logging, replay, or memory.
 | LangGraph context trimming | trim/summarize state before model calls | budgeted sections and approximate token counting |
 | Deep Agents context engineering | offload/compact long-running task context | compact memory/recent-step/trace summaries |
 | Claude Code compaction | stable instructions re-injected after compaction | `MemoryPolicy` policy section |
+| DeepSeek Harness | capability seams / providers | `CapabilityRegistry`, `ProviderDescriptor` |
+| DeepSeek Harness | sandbox as pluggable backend | `LocalSubprocessSandbox` capability provider |
+
+## Capabilities And Sandbox
+
+Runtime providers can be registered behind a common capability/name seam:
+
+```python
+from arc_harness import CapabilityRegistry, ProviderDescriptor
+
+registry = CapabilityRegistry()
+registry.register(provider, ProviderDescriptor(capability="model", name="local_policy"))
+model = registry.require("model", "local_policy")
+```
+
+The default registry includes a lightweight local subprocess sandbox:
+
+```python
+from arc_harness import DEFAULT_CAPABILITY_REGISTRY, SandboxPolicy
+
+sandbox = DEFAULT_CAPABILITY_REGISTRY.require("sandbox", "local_subprocess")
+result = sandbox.run(["python3", "-c", "print('ok')"])
+print(result.ok, result.stdout)
+```
+
+`LocalSubprocessSandbox` captures stdout/stderr, enforces timeouts, can restrict
+commands and working directories, and returns JSON-friendly `SandboxResult`
+objects. It is a bounded local process runner, not a container security
+boundary; stronger Docker/E2B-style providers should implement the same
+`Sandbox` protocol later.
 
 ## Context Management
 
@@ -517,6 +549,8 @@ This release is a harness foundation. It intentionally includes:
 - hybrid keyword/vector memory search without external services;
 - automatic episode-to-memory consolidation;
 - policy-only memory guidance;
+- unified capability registry for model/env/subagent/sandbox providers;
+- bounded local subprocess sandbox with timeout and command/cwd policy;
 - Kaggle-safe offline model protocol and `ModelBackedAgent`;
 - JSON model config loading and Kaggle `submission.py` helpers;
 - fail-fast validation for frames/actions;
