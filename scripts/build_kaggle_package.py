@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from arc_harness.kaggle import build_kaggle_package
+from arc_harness.integrations.kaggle import build_kaggle_package
 
 
 def main() -> int:

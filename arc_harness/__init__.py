@@ -2,9 +2,9 @@
 
 __version__ = "0.4.0"
 
-from .actions import Action, ActionType, Frame, StepRecord
-from .agent import ArcAgent, DelegatingPlannerAgent, HandoffAgent, HeuristicAgent, RuleLearningAgent
-from .capabilities import (
+from arc_harness.core.actions import Action, ActionType, Frame, StepRecord
+from arc_harness.core.agent import ArcAgent, DelegatingPlannerAgent, HandoffAgent, HeuristicAgent, RuleLearningAgent
+from arc_harness.models.capabilities import (
     DEFAULT_CAPABILITY_REGISTRY,
     CapabilityError,
     CapabilityRegistration,
@@ -12,10 +12,10 @@ from .capabilities import (
     ProviderDescriptor,
     make_default_capability_registry,
 )
-from .checkpoint import CheckpointStore
-from .config import RunnerConfig
-from .context import ContextBudget, ContextBundle, ContextInjector, ContextManager, ContextRole, ContextSection
-from .delegation import (
+from arc_harness.runtime.checkpoint import CheckpointStore
+from arc_harness.core.config import RunnerConfig
+from arc_harness.memory.context import ContextBudget, ContextBundle, ContextInjector, ContextManager, ContextRole, ContextSection
+from arc_harness.models.delegation import (
     DelegationConfig,
     DelegationError,
     DelegationManager,
@@ -26,11 +26,11 @@ from .delegation import (
     SubAgentResult,
     SubTask,
 )
-from .environment import ArcEnvironment, EnvironmentResult, validate_environment
-from .errors import ErrorContext, HarnessError, ValidationError
-from .evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner, classify_failure, episode_metrics
-from .events import AgentEvent
-from .guardrails import (
+from arc_harness.core.environment import ArcEnvironment, EnvironmentResult, validate_environment
+from arc_harness.utils.errors import ErrorContext, HarnessError, ValidationError
+from arc_harness.eval.evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner, classify_failure, episode_metrics
+from arc_harness.utils.events import AgentEvent
+from arc_harness.runtime.guardrails import (
     ActionGuardrail,
     CoordinateBoundsGuardrail,
     FrameGuardrail,
@@ -39,10 +39,10 @@ from .guardrails import (
     MaxChangedCellsGuardrail,
     ResultGuardrail,
 )
-from .hooks import ActionBudgetHook, Hook, HookManager, HookMatcher, JsonlTraceHook
-from .kaggle import KagglePackage, KaggleReadinessReport, ReadinessCheck, build_kaggle_package, build_submission_manifest, check_kaggle_readiness
-from .loop import EpisodeResult, EpisodeRunner
-from .loop_stages import (
+from arc_harness.runtime.hooks import ActionBudgetHook, Hook, HookManager, HookMatcher, JsonlTraceHook
+from arc_harness.integrations.kaggle import KagglePackage, KaggleReadinessReport, ReadinessCheck, build_kaggle_package, build_submission_manifest, check_kaggle_readiness
+from arc_harness.runtime.loop import EpisodeResult, EpisodeRunner
+from arc_harness.runtime.loop_stages import (
     ActionExecutionStage,
     BuildContextStage,
     DecisionStage,
@@ -61,10 +61,10 @@ from .loop_stages import (
     default_loop_stages,
     delegating_planner_loop_stages,
 )
-from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
-from .memory_policy import MemoryPolicy
-from .memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
-from .models import (
+from arc_harness.memory.memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
+from arc_harness.memory.memory_policy import MemoryPolicy
+from arc_harness.memory.memory_store import LightweightEmbeddingIndex, SearchResult, StructuredMemoryStore
+from arc_harness.models.models import (
     DEFAULT_MODEL_REGISTRY,
     CallableModel,
     CandidateAction,
@@ -80,7 +80,7 @@ from .models import (
     build_agent_from_model_config,
     load_model_from_config,
 )
-from .official import (
+from arc_harness.integrations.official import (
     ArcAgi3Config,
     EnvironmentFileCatalog,
     OfficialArcEnvironment,
@@ -89,14 +89,14 @@ from .official import (
     create_official_environment,
     resolve_official_action,
 )
-from .official_eval import OfficialSmokeReport, OfficialSmokeResult, OfficialSmokeRunner, discover_official_games
-from .policy import Decision, HookDecision
-from .replay import ReplayEpisode, ReplayStep
-from .recovery import DefaultRecoveryPolicy, NoRecoveryPolicy, RecoveryDecision, RecoveryKind, RecoveryPolicy
-from .sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
-from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
-from .thread import ArcThread
-from .tools import (
+from arc_harness.integrations.official_eval import OfficialSmokeReport, OfficialSmokeResult, OfficialSmokeRunner, discover_official_games
+from arc_harness.core.policy import Decision, HookDecision
+from arc_harness.eval.replay import ReplayEpisode, ReplayStep
+from arc_harness.runtime.recovery import DefaultRecoveryPolicy, NoRecoveryPolicy, RecoveryDecision, RecoveryKind, RecoveryPolicy
+from arc_harness.integrations.sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
+from arc_harness.models.subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
+from arc_harness.runtime.thread import ArcThread
+from arc_harness.runtime.tools import (
     RegisteredTool,
     ToolCall,
     ToolContext,
@@ -107,8 +107,8 @@ from .tools import (
     ToolSpec,
     default_tool_registry,
 )
-from .tracing import Span, Trace, TraceStore, TraceTimeline, TraceTimelineItem
-from .validation import validate_action, validate_frame
+from arc_harness.eval.tracing import Span, Trace, TraceStore, TraceTimeline, TraceTimelineItem
+from arc_harness.utils.validation import validate_action, validate_frame
 
 __all__ = [
     "Action",

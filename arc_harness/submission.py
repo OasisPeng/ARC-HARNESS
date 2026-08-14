@@ -10,9 +10,9 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
-from .adapters import KaggleAgentAdapter
-from .agent import ArcAgent, DelegatingPlannerAgent, HeuristicAgent
-from .models import CandidateRankingAgent, JsonPolicyModel, ModelBackedAgent, QwenLocalRanker, build_agent_from_model_config
+from arc_harness.integrations.adapters import KaggleAgentAdapter
+from arc_harness.core.agent import ArcAgent, DelegatingPlannerAgent, HeuristicAgent
+from arc_harness.models.models import CandidateRankingAgent, JsonPolicyModel, ModelBackedAgent, QwenLocalRanker, build_agent_from_model_config
 
 
 def build_agent_from_env() -> ArcAgent:

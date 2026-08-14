@@ -66,9 +66,9 @@ from arc_harness import (
     check_kaggle_readiness,
     delegating_planner_loop_stages,
 )
-from arc_harness.adapters import KaggleAgentAdapter
-from arc_harness.models import load_model_from_config
-from arc_harness.official import EnvironmentFileCatalog, coerce_official_frame
+from arc_harness.integrations.adapters import KaggleAgentAdapter
+from arc_harness.models.models import load_model_from_config
+from arc_harness.integrations.official import EnvironmentFileCatalog, coerce_official_frame
 from arc_harness.submission import build_adapter
 
 
@@ -883,7 +883,7 @@ class HarnessTests(unittest.TestCase):
             self.assertTrue((output / "arc_harness" / "submission.py").exists())
             self.assertTrue((output / "submission.py").exists())
             self.assertTrue(Path(package.manifest_path).exists())
-            self.assertIn("arc_harness/kaggle.py", package.files)
+            self.assertIn("arc_harness/integrations/kaggle.py", package.files)
 
 
 if __name__ == "__main__":

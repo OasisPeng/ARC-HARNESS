@@ -16,36 +16,15 @@ Notebook or packaged as a small module.
 
 ```text
 arc_harness/
-  actions.py       Action and frame data structures.
-  agent.py         Base ARC agent interface.
-  capabilities.py  Runtime capability registry and provider descriptors.
-  environment.py   Minimal environment protocol.
-  errors.py        Structured error context and validation exceptions.
-  events.py        Structured event stream.
-  evaluation.py    Batch evaluation runner and JSON-friendly reports.
-  guardrails.py    Action/frame/result guardrail interfaces.
-  hooks.py         Hook interface and built-in logging hook.
-  kaggle.py        Kaggle readiness checks and submission manifest.
-  loop.py          EpisodeRunner: the agent loop.
-  loop_stages.py   Stage-based loop state, runtime, and pipeline.
-  memory.py        Layered memory stores.
-  memory_policy.py Policy-only guidance for when/how to retrieve memory.
-  memory_store.py  SQLite memory store with hybrid search.
-  models.py        Offline local model protocol and model-backed agent.
-  official.py      Optional official ARC-AGI-3 toolkit/environment adapter.
-  official_eval.py Public official-game smoke runner.
-  policy.py        Hook decisions: allow, rewrite, block.
-  recovery.py      Retry/replan/fallback/abort recovery decisions.
-  sandbox.py       Bounded local subprocess sandbox provider.
-  checkpoint.py    Latest-step checkpoint persistence.
-  context.py       Budgeted context manager and injector.
-  delegation.py    SubTask/SubAgent/SubAgentResult and dispatch manager.
-  subagents.py     Default perception, diff, and exploration specialists.
-  submission.py    Kaggle choose_action/is_done helper entrypoint.
-  tracing.py       Trace/span model and JSON persistence.
-  validation.py    Frame/action validators.
-  thread.py        Codex-like ArcThread API.
-  adapters.py      Helpers for Kaggle-style choose_action/is_done agents.
+  __init__.py       Stable public API exports.
+  submission.py     Kaggle choose_action/is_done helper entrypoint.
+  core/             Actions, frames, agents, config, environment protocols.
+  runtime/          Episode loop, stages, hooks, tools, guardrails, thread API.
+  memory/           Working/durable memory, context manager, memory search.
+  models/           Local models, Qwen ranker, delegation, subagents, providers.
+  integrations/     Kaggle, official ARC-AGI-3 adapter/eval, sandbox.
+  eval/             Batch evaluation, replay, trace/span utilities.
+  utils/            Shared events, errors, validation helpers.
 examples/
   stream_and_hooks.py SDK-like event and hook example.
   toy_grid_game.py Small runnable example environment and agent.
@@ -140,7 +119,7 @@ hits = thread.memory.search_entries(
 For ARC-AGI-3 submissions, implement the Kaggle-facing functions with an agent:
 
 ```python
-from arc_harness.adapters import KaggleAgentAdapter
+from arc_harness.integrations import KaggleAgentAdapter
 
 adapter = KaggleAgentAdapter(agent)
 
