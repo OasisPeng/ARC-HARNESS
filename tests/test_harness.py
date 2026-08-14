@@ -11,6 +11,8 @@ from arc_harness import (
     ActionType,
     ArcThread,
     CallableModel,
+    CandidateAction,
+    CandidateRankingAgent,
     CapabilityError,
     CapabilityRegistry,
     ContextBudget,
@@ -46,6 +48,7 @@ from arc_harness import (
     ProviderDescriptor,
     RunnerConfig,
     RuleLearningAgent,
+    QwenLocalRanker,
     SandboxCommand,
     SandboxPolicy,
     SandboxPolicyError,
@@ -779,6 +782,34 @@ class HarnessTests(unittest.TestCase):
             self.assertIn("Object Summary", captured["context"])
             self.assertIn("Tried And Failed Action Map", captured["context"])
 
+    def test_candidate_ranking_agent_injects_candidates_and_acts_on_ranked_choice(self) -> None:
+        captured = {}
+
+        def rank(model_input: ModelInput) -> ModelOutput:
+            captured["candidate_count"] = len(model_input.candidates)
+            target = [candidate for candidate in model_input.candidates if candidate.action.xy == (1, 0)][0]
+            return ModelOutput(
+                plan=[{"candidate_id": target.candidate_id, "action": target.action.to_dict(), "score": 0.92, "reason": "target cell"}],
+                confidence=0.92,
+                rationale="target cell",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = CandidateRankingAgent(CallableModel(rank, name="RankBrain"), inject_context=False)
+            result = ArcThread(memory_dir=tmp).run_episode(TinyEnv(), agent, config=RunnerConfig(max_steps=2))
+            self.assertEqual(result.status, "WIN")
+            self.assertGreater(captured["candidate_count"], 0)
+
+    def test_qwen_local_ranker_parses_ranked_json_into_candidate_plan(self) -> None:
+        ranker = QwenLocalRanker("/tmp/not-loaded", load_on_init=False, tokenizer=object(), model=object())
+        candidates = [
+            CandidateAction(0, Action(ActionType.ACTION1), "simple"),
+            CandidateAction(1, Action(ActionType.ACTION6, (1, 0)), "target"),
+        ]
+        output = ranker._parse_response('{"ranked_candidates":[{"candidate_id":1,"score":0.88,"reason":"touch target"}]}', candidates)
+        self.assertEqual(output.best_action(), Action(ActionType.ACTION6, (1, 0)))
+        self.assertAlmostEqual(output.confidence, 0.88)
+
     def test_model_config_loads_json_policy_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             policy_path = Path(tmp) / "policy.json"
@@ -788,6 +819,21 @@ class HarnessTests(unittest.TestCase):
             model = load_model_from_config(config_path)
             output = model.predict(ModelInput([], Frame.from_grid([[0]])))
             self.assertEqual(output.best_action().kind, "ACTION1")
+
+    def test_model_config_builds_candidate_ranking_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "policy.json"
+            config_path = Path(tmp) / "model.json"
+            policy_path.write_text('{"*": {"plan": [{"action": {"kind": "ACTION1"}, "score": 1.0}]}}', encoding="utf-8")
+            config_path.write_text(
+                f'{{"agent": "candidate_ranker", "type": "json_policy", "path": "{policy_path}", '
+                '"candidate_generator": {"max_coordinate_candidates": 3}}',
+                encoding="utf-8",
+            )
+            from arc_harness import build_agent_from_model_config
+
+            agent = build_agent_from_model_config(config_path)
+            self.assertIsInstance(agent, CandidateRankingAgent)
 
     def test_submission_helpers_build_adapter_from_explicit_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,9 @@
+{
+  "agent": "candidate_ranker",
+  "type": "qwen2_5_0_5b_instruct",
+  "path": "/kaggle/input/qwen2-5-0-5b-instruct",
+  "candidate_generator": {
+    "max_coordinate_candidates": 64,
+    "include_simple_actions": true
+  }
+}

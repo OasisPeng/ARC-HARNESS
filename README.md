@@ -283,6 +283,59 @@ print(report.to_dict())
 Kaggle evaluation disables internet access, so model integrations are local
 protocols rather than online API clients.
 
+The recommended first real model is `Qwen/Qwen2.5-0.5B-Instruct`: it is
+Apache-2.0, small enough to be a realistic Kaggle offline experiment, and good
+at returning structured JSON. Put the downloaded Hugging Face model directory
+in a Kaggle Dataset or Model attachment, then load it from `/kaggle/input/...`.
+
+```python
+from arc_harness import CandidateRankingAgent, QwenLocalRanker
+
+agent = CandidateRankingAgent(
+    QwenLocalRanker("/kaggle/input/qwen2-5-0-5b-instruct")
+)
+```
+
+This agent does not let the LLM free-form arbitrary actions. The harness first
+generates bounded candidates from the frame, memory, and recent action history;
+Qwen ranks those candidates by expected information gain and progress.
+
+```text
+frame + memory -> compact context -> candidate actions -> Qwen JSON ranking -> execute top action
+```
+
+For the packaged Kaggle entrypoint:
+
+```python
+import os
+
+os.environ["ARC_HARNESS_AGENT"] = "qwen_ranker"
+os.environ["ARC_HARNESS_MODEL_PATH"] = "/kaggle/input/qwen2-5-0-5b-instruct"
+
+from arc_harness.submission import choose_action, is_done
+```
+
+Equivalent JSON config:
+
+```json
+{
+  "agent": "candidate_ranker",
+  "type": "qwen2_5_0_5b_instruct",
+  "path": "/kaggle/input/qwen2-5-0-5b-instruct",
+  "candidate_generator": {
+    "max_coordinate_candidates": 64,
+    "include_simple_actions": true
+  }
+}
+```
+
+```python
+import os
+
+os.environ["ARC_HARNESS_AGENT"] = "model_config"
+os.environ["ARC_HARNESS_MODEL_CONFIG"] = "/kaggle/input/arc-agent/model.json"
+```
+
 ```python
 from arc_harness import CallableModel, ModelBackedAgent, ModelOutput
 

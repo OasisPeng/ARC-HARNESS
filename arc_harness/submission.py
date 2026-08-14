@@ -12,7 +12,7 @@ from typing import Any, Sequence
 
 from .adapters import KaggleAgentAdapter
 from .agent import ArcAgent, DelegatingPlannerAgent, HeuristicAgent
-from .models import JsonPolicyModel, ModelBackedAgent
+from .models import CandidateRankingAgent, JsonPolicyModel, ModelBackedAgent, QwenLocalRanker, build_agent_from_model_config
 
 
 def build_agent_from_env() -> ArcAgent:
@@ -21,6 +21,8 @@ def build_agent_from_env() -> ArcAgent:
     Supported values:
     - `ARC_HARNESS_AGENT=delegating_planner`
     - `ARC_HARNESS_AGENT=json_policy` with `ARC_HARNESS_POLICY=/path/policy.json`
+    - `ARC_HARNESS_AGENT=model_config` with `ARC_HARNESS_MODEL_CONFIG=/path/model.json`
+    - `ARC_HARNESS_AGENT=qwen_ranker` with `ARC_HARNESS_MODEL_PATH=/kaggle/input/...`
     - anything else falls back to `HeuristicAgent`
     """
 
@@ -32,6 +34,16 @@ def build_agent_from_env() -> ArcAgent:
         if not policy_path:
             raise ValueError("ARC_HARNESS_POLICY must be set when ARC_HARNESS_AGENT=json_policy.")
         return ModelBackedAgent(JsonPolicyModel(policy_path))
+    if kind in {"model_config", "model"}:
+        config_path = os.environ.get("ARC_HARNESS_MODEL_CONFIG")
+        if not config_path:
+            raise ValueError("ARC_HARNESS_MODEL_CONFIG must be set when ARC_HARNESS_AGENT=model_config.")
+        return build_agent_from_model_config(config_path)
+    if kind in {"qwen_ranker", "qwen", "local_qwen"}:
+        model_path = os.environ.get("ARC_HARNESS_MODEL_PATH")
+        if not model_path:
+            raise ValueError("ARC_HARNESS_MODEL_PATH must be set when ARC_HARNESS_AGENT=qwen_ranker.")
+        return CandidateRankingAgent(QwenLocalRanker(model_path))
     if kind in {"heuristic", "baseline"}:
         return HeuristicAgent()
     raise ValueError(f"Unknown ARC_HARNESS_AGENT={kind!r}.")
