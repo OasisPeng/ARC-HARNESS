@@ -19,6 +19,7 @@ from .hooks import Hook, HookManager
 from .loop import EpisodeResult, EpisodeRunner
 from .loop_stages import StagePipeline
 from .memory import DurableMemory, MemoryManager
+from .replay import ReplayEpisode
 from .tracing import Trace, TraceStore
 
 
@@ -154,6 +155,13 @@ class ArcThread:
     def load_replay(self, episode_id: str):
         return self.memory.durable.load_replay(episode_id)
 
+    def replay_markdown(self, episode_id: str, *, include_grids: bool = False) -> str:
+        return self.load_replay(episode_id).to_markdown(include_grids=include_grids)
+
+    def write_replay_report(self, episode_id: str, path: str | Path, *, include_grids: bool = False) -> Path:
+        replay: ReplayEpisode = self.load_replay(episode_id)
+        return replay.write_markdown(path, include_grids=include_grids)
+
     def read_checkpoint(self, episode_id: str) -> dict:
         return CheckpointStore(self.root / "checkpoints").read(episode_id)
 
@@ -162,6 +170,12 @@ class ArcThread:
 
     def read_trace(self, trace_id: str) -> dict:
         return TraceStore(self.root / "traces").read(trace_id)
+
+    def trace_timeline(self, trace_id: str):
+        return TraceStore(self.root / "traces").timeline(trace_id)
+
+    def write_trace_report(self, trace_id: str, path: str | Path) -> Path:
+        return self.trace_timeline(trace_id).write_markdown(path)
 
     def build_context(
         self,

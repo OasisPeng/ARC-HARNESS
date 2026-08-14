@@ -346,7 +346,7 @@ local model-backed agent without rewriting logging, replay, or memory.
 of a monolithic action loop. The default order is:
 
 ```text
-done_check -> decision -> permission -> action.execute -> stop_check
+done_check -> context.build -> decision -> permission -> action.execute -> stop_check
 ```
 
 Each stage receives a mutable `LoopState` and a `LoopRuntime` with access to the
@@ -395,7 +395,7 @@ result = thread.run_episode(env, agent, pipeline=pipeline)
 That pipeline runs:
 
 ```text
-done_check -> perception -> exploration -> planning -> decision -> permission -> action.execute -> stop_check
+done_check -> context.build -> perception -> exploration -> planning -> decision -> permission -> action.execute -> stop_check
 ```
 
 The perception/exploration/planning stages call the registered
@@ -458,6 +458,37 @@ and stores the resulting `ContextBundle` on `LoopState.context`. The delegating
 planner pipeline passes that compressed context into `PlanningStage`, and
 `ModelBackedAgent` uses the same `ContextManager` instead of directly searching
 raw memory.
+
+## Evaluation And Replay
+
+`EvaluationRunner` runs batches of `EvalCase` items and now produces more than
+completion rate:
+
+- win/completion rate, average steps, success-only average steps, and average reward;
+- status counts and failure taxonomy counts;
+- per-case replay path, trace path, trace id, and context/action metrics;
+- JSON and Markdown report writers;
+- report comparison for A/B testing agents, configs, or pipelines.
+
+Failure taxonomy is deterministic and based on episode evidence such as status,
+error context, notes, failures, and action effects. The initial categories are
+`completed`, `max_steps_exceeded`, `repeated_noop`, `state_not_progressing`,
+`invalid_action`, `guardrail_failed`, `permission_denied`, `planner_empty`,
+`subagent_failed`, `runtime_error`, and `unfinished`.
+
+Single episodes can be replayed from the thread:
+
+```python
+result = thread.run_episode(env, agent, config=RunnerConfig(max_steps=64))
+print(thread.replay_markdown(result.episode_id))
+print(thread.trace_timeline(result.summary["trace_id"]).to_markdown())
+```
+
+`ReplayEpisode` summarizes action counts, progressed/no-op steps, rewards,
+changed cells, and optional grids. `TraceTimeline` turns raw spans into a compact
+timeline with stage counts and slowest spans. Together these are the lightweight
+debugging loop for answering why an ARC run won, timed out, repeated no-op
+actions, or failed inside a stage.
 
 ## Memory Design
 

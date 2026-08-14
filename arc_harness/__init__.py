@@ -28,7 +28,7 @@ from .delegation import (
 )
 from .environment import ArcEnvironment, EnvironmentResult, validate_environment
 from .errors import ErrorContext, HarnessError, ValidationError
-from .evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner
+from .evaluation import EvalCase, EvalCaseResult, EvalReport, EvaluationRunner, classify_failure, episode_metrics
 from .events import AgentEvent
 from .guardrails import (
     ActionGuardrail,
@@ -91,7 +91,7 @@ from .recovery import DefaultRecoveryPolicy, NoRecoveryPolicy, RecoveryDecision,
 from .sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
 from .thread import ArcThread
-from .tracing import Span, Trace, TraceStore
+from .tracing import Span, Trace, TraceStore, TraceTimeline, TraceTimelineItem
 from .validation import validate_action, validate_frame
 
 __all__ = [
@@ -137,6 +137,8 @@ __all__ = [
     "EvalCaseResult",
     "EvalReport",
     "EvaluationRunner",
+    "TraceTimeline",
+    "TraceTimelineItem",
     "ExplorerSubAgent",
     "ExplorationStage",
     "EpisodeResult",
@@ -218,9 +220,11 @@ __all__ = [
     "build_kaggle_package",
     "build_submission_manifest",
     "check_kaggle_readiness",
+    "classify_failure",
     "coerce_official_frame",
     "create_official_environment",
     "discover_official_games",
+    "episode_metrics",
     "default_loop_stages",
     "delegating_planner_loop_stages",
     "load_model_from_config",

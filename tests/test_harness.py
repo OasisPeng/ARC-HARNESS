@@ -86,6 +86,11 @@ class BadActionAgent(HeuristicAgent):
         return Action("BAD_ACTION")
 
 
+class NoopAgent(HeuristicAgent):
+    def choose_action(self, frames, latest_frame, memory):
+        return Action(ActionType.ACTION1)
+
+
 class OutOfBoundsAgent(HeuristicAgent):
     def choose_action(self, frames, latest_frame, memory):
         return Action(ActionType.ACTION6, (99, 99))
@@ -284,6 +289,19 @@ class HarnessTests(unittest.TestCase):
             trace = thread.read_trace(trace_id)
             self.assertEqual(trace["group_id"], episode_id)
             self.assertGreaterEqual(len(trace["spans"]), 3)
+            replay_markdown = thread.replay_markdown(episode_id)
+            self.assertIn("| step | action | reward | changed_cells | status | progressed |", replay_markdown)
+            self.assertIn("ACTION6", replay_markdown)
+            trace_timeline = thread.trace_timeline(trace_id)
+            self.assertEqual(trace_timeline.group_id, episode_id)
+            self.assertIn("episode", trace_timeline.stage_counts())
+            self.assertIn("| span | duration_ms | parent | metadata |", trace_timeline.to_markdown())
+            replay_report = Path(tmp) / "reports" / "replay.md"
+            trace_report = Path(tmp) / "reports" / "trace.md"
+            thread.write_replay_report(episode_id, replay_report)
+            thread.write_trace_report(trace_id, trace_report)
+            self.assertTrue(replay_report.exists())
+            self.assertTrue(trace_report.exists())
 
     def test_stage_pipeline_exposes_order_and_allows_insertion(self) -> None:
         pipeline = StagePipeline()
@@ -471,6 +489,35 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(report.total, 2)
             self.assertEqual(report.completed, 2)
             self.assertEqual(report.status_counts(), {"WIN": 2})
+            self.assertEqual(report.failure_counts(), {"completed": 2})
+
+    def test_evaluation_runner_records_failure_taxonomy_and_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = EvaluationRunner(memory_dir=tmp)
+            report = runner.run(
+                [EvalCase("stuck", TinyEnv)],
+                NoopAgent,
+                config=RunnerConfig(max_steps=2),
+            )
+            result = report.results[0]
+            self.assertEqual(result.failure_reason, "max_steps_exceeded")
+            self.assertEqual(result.metrics["noop_action_count"], 2)
+            self.assertTrue(Path(result.replay_path).exists())
+            self.assertTrue(Path(result.trace_path).exists())
+            self.assertIn("failure_counts", report.to_dict())
+            self.assertIn("max_steps_exceeded", report.to_markdown())
+            report_json = report.write_json(Path(tmp) / "eval.json")
+            report_md = report.write_markdown(Path(tmp) / "eval.md")
+            self.assertTrue(report_json.exists())
+            self.assertTrue(report_md.exists())
+
+            winning = EvaluationRunner(memory_dir=Path(tmp) / "winning").run(
+                [EvalCase("win", TinyEnv)],
+                TargetAgent,
+                config=RunnerConfig(max_steps=2),
+            )
+            comparison = winning.compare(report)
+            self.assertGreater(comparison["completion_rate_delta"], 0)
 
     def test_default_subagents_perceive_frame_and_record_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
