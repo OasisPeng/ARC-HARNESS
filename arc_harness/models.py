@@ -9,6 +9,7 @@ from typing import Any, Callable, Protocol
 
 from .actions import Action, Frame
 from .agent import ArcAgent, DelegatingPlannerAgent
+from .context import ContextManager
 from .memory import MemoryManager
 
 
@@ -102,8 +103,17 @@ class ModelBackedAgent(ArcAgent):
         self.inject_context = inject_context
 
     def choose_action(self, frames: list[Frame], latest_frame: Frame, memory: MemoryManager) -> Action:
-        context = memory.durable.search("action effect rule procedure", limit=5) if self.inject_context else []
-        model_input = ModelInput(frames, latest_frame, context="\n\n".join(context), metadata={"model": self.model.name})
+        context = (
+            ContextManager().build(
+                memory=memory,
+                latest_frame=latest_frame,
+                query="action effect rule procedure recovery plan",
+                include_arc_state=True,
+            ).render()
+            if self.inject_context
+            else ""
+        )
+        model_input = ModelInput(frames, latest_frame, context=context, metadata={"model": self.model.name})
         try:
             output = self.model.predict(model_input)
             action = output.best_action()

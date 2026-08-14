@@ -9,6 +9,7 @@ from .actions import Action, ActionType, Frame, StepRecord
 from .agent import ArcAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
+from .context import ContextBundle, ContextManager
 from .delegation import DelegationConfig, DelegationManager
 from .environment import ArcEnvironment, EnvironmentResult
 from .events import AgentEvent
@@ -250,17 +251,33 @@ class DoneCheckStage:
 
 
 class BuildContextStage:
-    """Optional stage for injecting externally supplied context builders."""
+    """Build deterministic, model-visible ARC context for this step."""
 
     name = "context.build"
 
-    def __init__(self, builder: Callable[[LoopState, LoopRuntime], Any] | None = None) -> None:
+    def __init__(
+        self,
+        builder: Callable[[LoopState, LoopRuntime], Any] | None = None,
+        *,
+        manager: ContextManager | None = None,
+        query: str = "action effect rule procedure recovery plan",
+    ) -> None:
         self.builder = builder
+        self.manager = manager or ContextManager()
+        self.query = query
 
     def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
         if self.builder is not None:
             state.context = self.builder(state, runtime)
-            runtime.emit("context.built", state.episode_id, {"step": state.step})
+        else:
+            state.context = self.manager.build(
+                memory=runtime.memory,
+                latest_frame=state.frame,
+                query=self.query,
+                current_plan=state.plan,
+                include_arc_state=True,
+            )
+        runtime.emit("context.built", state.episode_id, {"step": state.step, "context": _context_metadata(state.context)})
         return state
 
 
@@ -341,6 +358,7 @@ class PlanningStage:
                 "perception": perception,
                 "candidate_actions": exploration.get("competition_values", []) if isinstance(exploration, dict) else [],
                 "tried_actions": tried,
+                "context": state.context.render() if isinstance(state.context, ContextBundle) else "",
             },
             runtime.memory,
             budget=self.budget,
@@ -361,7 +379,9 @@ class PlanDecisionStage:
     def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
         steps = state.plan.get("plan", []) if isinstance(state.plan, dict) else []
         if steps:
-            action = Action.from_value(steps[0]["action"])
+            selected = steps[0]
+            action = Action.from_value(selected["action"])
+            action = Action(action.kind, action.xy, {**action.meta, "source": "plan", "reason": selected.get("reason", ""), "context_tokens": _context_tokens(state.context)})
             runtime.memory.add_note(f"Plan stage selected: {steps[0].get('reason', '')}")
         elif self.fallback_to_agent:
             action_span = runtime.trace.start_span("agent.choose_action", parent_id=runtime.root_span.span_id, metadata={"step": state.step, "source": "plan_fallback"})
@@ -450,6 +470,7 @@ class StopCheckStage:
 def default_loop_stages() -> list[LoopStage]:
     return [
         DoneCheckStage(),
+        BuildContextStage(),
         DecisionStage(),
         PermissionStage(),
         ActionExecutionStage(),
@@ -460,6 +481,7 @@ def default_loop_stages() -> list[LoopStage]:
 def delegating_planner_loop_stages(*, delegation_config: DelegationConfig | None = None) -> list[LoopStage]:
     return [
         DoneCheckStage(),
+        BuildContextStage(),
         PerceptionStage(config=delegation_config),
         ExplorationStage(config=delegation_config),
         PlanningStage(config=delegation_config),
@@ -504,3 +526,19 @@ def _fallback_untried_action(state: LoopState, runtime: LoopRuntime) -> Action:
 def _action_key(action: Action) -> tuple[str, tuple[int, int] | None]:
     kind = action.kind.value if hasattr(action.kind, "value") else str(action.kind)
     return kind, action.xy
+
+
+def _context_metadata(context: Any) -> dict[str, Any]:
+    if isinstance(context, ContextBundle):
+        return {
+            "total_tokens": context.total_tokens,
+            "sections": [section.role.value for section in context.sections],
+            "dropped": [section.role.value for section in context.dropped],
+        }
+    if context is None:
+        return {"total_tokens": 0, "sections": [], "dropped": []}
+    return {"type": type(context).__name__}
+
+
+def _context_tokens(context: Any) -> int:
+    return context.total_tokens if isinstance(context, ContextBundle) else 0

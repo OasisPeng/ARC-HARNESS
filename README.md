@@ -438,6 +438,10 @@ boundary; stronger Docker/E2B-style providers should implement the same
 - relevant durable memory from `MemoryManager.search_entries()`;
 - recent action effects from `WorkingMemory.steps`;
 - latest frame summary;
+- ARC object/component summaries from the latest frame;
+- tried/effective/failed action maps from step history;
+- current plan summaries from planner stages;
+- recovery summaries from failures and recovery notes;
 - trace/span summary from `TraceStore`;
 - active hypotheses, notes, and failures;
 - a compact memory policy section.
@@ -447,6 +451,13 @@ metadata, and approximate token count. Sections are trimmed individually and
 then fitted into `ContextBudget.max_tokens`; lower-priority sections are dropped
 first. This keeps prompt-visible context deterministic and testable while
 leaving full replay, memory, and traces on disk.
+
+This compression is deterministic and does not require an LLM. The default
+`StagePipeline` now includes `BuildContextStage`, which emits `context.built`
+and stores the resulting `ContextBundle` on `LoopState.context`. The delegating
+planner pipeline passes that compressed context into `PlanningStage`, and
+`ModelBackedAgent` uses the same `ContextManager` instead of directly searching
+raw memory.
 
 ## Memory Design
 
@@ -598,6 +609,7 @@ This release is a harness foundation. It intentionally includes:
 - stage-based agent loop with insert/replace pipeline stages;
 - recovery policy for retry/replan/fallback/abort after stage failures;
 - planner stages for perception -> exploration -> planning -> decision;
+- deterministic ARC state compression for objects, action maps, plans, and recovery notes;
 - action permission hooks;
 - hook matchers for event/action/status filtering;
 - guardrails for action/frame/result checks;

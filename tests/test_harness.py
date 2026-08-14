@@ -287,14 +287,17 @@ class HarnessTests(unittest.TestCase):
 
     def test_stage_pipeline_exposes_order_and_allows_insertion(self) -> None:
         pipeline = StagePipeline()
-        self.assertEqual(pipeline.names(), ("done_check", "decision", "permission", "action.execute", "stop_check"))
+        self.assertEqual(pipeline.names(), ("done_check", "context.build", "decision", "permission", "action.execute", "stop_check"))
         pipeline.insert_before("decision", NoteStage())
-        self.assertEqual(pipeline.names()[1], "note")
+        self.assertEqual(pipeline.names()[2], "note")
 
         with tempfile.TemporaryDirectory() as tmp:
             thread = ArcThread(memory_dir=tmp, pipeline=pipeline)
             events = list(thread.run_streamed(TinyEnv(), HeuristicAgent(), config=RunnerConfig(max_steps=4)))
             self.assertIn("custom.stage", [event["type"] for event in events])
+            context_events = [event for event in events if event["type"] == "context.built"]
+            self.assertTrue(context_events)
+            self.assertIn("action_map", context_events[0]["payload"]["context"]["sections"])
             self.assertIn("custom stage at step 0", thread.memory.working.notes)
             self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
 
@@ -384,7 +387,7 @@ class HarnessTests(unittest.TestCase):
             thread = ArcThread(memory_dir=tmp)
             result = thread.run_episode(TinyEnv(), RuleLearningAgent(), config=RunnerConfig(max_steps=8))
             latest = thread.memory.working.frames[-1]
-            manager = ContextManager(ContextBudget(max_tokens=320, memory_tokens=90, recent_step_tokens=80, trace_tokens=90))
+            manager = ContextManager(ContextBudget(max_tokens=720, memory_tokens=120, recent_step_tokens=90, trace_tokens=120))
             bundle = thread.build_context(
                 latest_frame=latest,
                 trace_id=result.summary["trace_id"],
@@ -392,11 +395,13 @@ class HarnessTests(unittest.TestCase):
                 manager=manager,
             )
             rendered = bundle.render()
-            self.assertLessEqual(bundle.total_tokens, 320)
+            self.assertLessEqual(bundle.total_tokens, manager.budget.max_tokens)
             self.assertIn("memory-policy", rendered)
             self.assertIn("recent_steps", rendered)
             self.assertIn("Latest Frame Summary", rendered)
             self.assertIn("Trace Summary", rendered)
+            self.assertIn("Object Summary", rendered)
+            self.assertIn("Tried And Failed Action Map", rendered)
 
     def test_context_injector_returns_prompt_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -634,6 +639,21 @@ class HarnessTests(unittest.TestCase):
             adapter = KaggleAgentAdapter(ModelBackedAgent(model, inject_context=False), memory_dir=Path(tmp) / "memory")
             action = adapter.choose_action([[[0, 1], [0, 2]]], [[0, 1], [0, 2]])
             self.assertEqual(action, ("ACTION6", 1, 0))
+
+    def test_model_backed_agent_receives_compressed_arc_context(self) -> None:
+        captured = {}
+
+        def choose(model_input: ModelInput) -> ModelOutput:
+            captured["context"] = model_input.context
+            return ModelOutput(action=Action(ActionType.ACTION6, (1, 0)))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = ModelBackedAgent(CallableModel(choose, name="ContextAwareModel"))
+            thread = ArcThread(memory_dir=tmp)
+            result = thread.run_episode(TinyEnv(), agent, config=RunnerConfig(max_steps=2))
+            self.assertEqual(result.status, "WIN")
+            self.assertIn("Object Summary", captured["context"])
+            self.assertIn("Tried And Failed Action Map", captured["context"])
 
     def test_model_config_loads_json_policy_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
