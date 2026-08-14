@@ -5,16 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
-from .actions import Action, Frame, StepRecord
+from .actions import Action, ActionType, Frame, StepRecord
 from .agent import ArcAgent
 from .checkpoint import CheckpointStore
 from .config import RunnerConfig
+from .delegation import DelegationConfig, DelegationManager
 from .environment import ArcEnvironment, EnvironmentResult
 from .events import AgentEvent
 from .guardrails import GuardrailDecision
 from .hooks import HookManager
 from .memory import MemoryManager
 from .policy import Decision, HookDecision
+from .recovery import DefaultRecoveryPolicy, RecoveryDecision, RecoveryKind, RecoveryPolicy
 from .tracing import Trace
 from .validation import validate_action, validate_frame
 
@@ -78,6 +80,7 @@ class LoopRuntime:
     trace: Trace
     root_span: Any
     checkpoints: CheckpointStore | None = None
+    delegation: DelegationManager | None = None
     events: list[AgentEvent] = field(default_factory=list)
 
     def emit(self, event_type: str, episode_id: str, payload: dict[str, Any] | None = None) -> None:
@@ -136,9 +139,18 @@ class LoopStage(Protocol):
 class StagePipeline:
     """Ordered, inspectable loop stage pipeline."""
 
-    def __init__(self, stages: list[LoopStage] | None = None, *, emit_stage_events: bool = True) -> None:
+    def __init__(
+        self,
+        stages: list[LoopStage] | None = None,
+        *,
+        emit_stage_events: bool = True,
+        recovery_policy: RecoveryPolicy | None = None,
+        max_recovery_attempts: int = 3,
+    ) -> None:
         self.stages = list(stages or default_loop_stages())
         self.emit_stage_events = emit_stage_events
+        self.recovery_policy = recovery_policy or DefaultRecoveryPolicy()
+        self.max_recovery_attempts = max_recovery_attempts
 
     def insert_before(self, target: str, stage: LoopStage) -> None:
         self.stages.insert(self._index(target), stage)
@@ -156,15 +168,29 @@ class StagePipeline:
         for stage in self.stages:
             if state.stop:
                 break
-            if self.emit_stage_events:
-                runtime.emit("stage.started", state.episode_id, {"step": state.step, "stage": stage.name})
-            try:
-                state.phase = stage.name
-                state = stage.run(state, runtime)
-            except Exception as exc:
+            attempt = 1
+            while True:
                 if self.emit_stage_events:
-                    runtime.emit("stage.failed", state.episode_id, {"step": state.step, "stage": stage.name, "error": repr(exc)})
-                raise
+                    runtime.emit("stage.started", state.episode_id, {"step": state.step, "stage": stage.name, "attempt": attempt})
+                try:
+                    state.phase = stage.name
+                    state = stage.run(state, runtime)
+                except Exception as exc:
+                    if self.emit_stage_events:
+                        runtime.emit("stage.failed", state.episode_id, {"step": state.step, "stage": stage.name, "attempt": attempt, "error": repr(exc)})
+                    decision = self.recovery_policy.decide(error=exc, state=state, runtime=runtime, stage=stage, attempt=attempt)
+                    self._apply_recovery_decision(decision, state, runtime, stage, attempt)
+                    if decision.kind == RecoveryKind.RAISE:
+                        raise
+                    if decision.kind == RecoveryKind.ABORT:
+                        return state
+                    if decision.kind == RecoveryKind.FALLBACK_ACTION:
+                        break
+                    attempt += 1
+                    if attempt > self.max_recovery_attempts:
+                        raise
+                    continue
+                break
             if self.emit_stage_events:
                 runtime.emit(
                     "stage.completed",
@@ -172,6 +198,39 @@ class StagePipeline:
                     {"step": state.step, "stage": stage.name, "status": state.status, "stop": state.stop},
                 )
         return state
+
+    def _apply_recovery_decision(
+        self,
+        decision: RecoveryDecision,
+        state: LoopState,
+        runtime: LoopRuntime,
+        stage: LoopStage,
+        attempt: int,
+    ) -> None:
+        runtime.emit(
+            "recovery.triggered",
+            state.episode_id,
+            {
+                "step": state.step,
+                "stage": stage.name,
+                "attempt": attempt,
+                "decision": decision.to_dict(),
+            },
+        )
+        runtime.memory.add_note(f"Recovery {decision.kind.value} at {stage.name}: {decision.reason}")
+        if decision.kind == RecoveryKind.REPLAN:
+            state.plan = None
+            state.proposed_action = None
+            state.metadata["replan_requested"] = True
+            runtime.emit("plan.cleared", state.episode_id, {"step": state.step, "stage": stage.name, "reason": decision.reason})
+        elif decision.kind == RecoveryKind.FALLBACK_ACTION:
+            if decision.action is None:
+                raise RuntimeError("Fallback recovery requires an action.")
+            state.proposed_action = decision.action
+            state.metadata["fallback_action"] = decision.action.to_dict()
+            runtime.emit("action.proposed", state.episode_id, {"step": state.step, "action": decision.action.to_dict(), "source": "recovery"})
+        elif decision.kind == RecoveryKind.ABORT:
+            state.stop_with(decision.status, done=False, reason=decision.reason)
 
     def _index(self, target: str) -> int:
         for idx, stage in enumerate(self.stages):
@@ -217,6 +276,104 @@ class DecisionStage:
         action = runtime.run_action_guardrails(state.step, state.frame, action)
         state.proposed_action = action
         runtime.emit("action.proposed", state.episode_id, {"step": state.step, "action": action.to_dict()})
+        return state
+
+
+class PerceptionStage:
+    name = "perception"
+
+    def __init__(self, *, budget: int = 128, config: DelegationConfig | None = None) -> None:
+        self.budget = budget
+        self.config = config
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        delegation = _delegation(runtime)
+        result = delegation.delegate(
+            "perceive",
+            {"frame": state.frame},
+            runtime.memory,
+            budget=self.budget,
+            config=self.config,
+        )
+        state.metadata["perception"] = result.output
+        runtime.emit("perception.completed", state.episode_id, {"step": state.step, "result": result.to_dict()})
+        return state
+
+
+class ExplorationStage:
+    name = "exploration"
+
+    def __init__(self, *, budget: int = 32, config: DelegationConfig | None = None) -> None:
+        self.budget = budget
+        self.config = config
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        delegation = _delegation(runtime)
+        tried = runtime.memory.working.recent_actions(limit=state.frame.width * state.frame.height + 8)
+        result = delegation.delegate(
+            "explore",
+            {"frame": state.frame, "tried_actions": tried},
+            runtime.memory,
+            budget=self.budget,
+            config=self.config,
+        )
+        state.metadata["exploration"] = result.output
+        runtime.emit("exploration.completed", state.episode_id, {"step": state.step, "result": result.to_dict()})
+        return state
+
+
+class PlanningStage:
+    name = "planning"
+
+    def __init__(self, *, budget: int = 8, config: DelegationConfig | None = None) -> None:
+        self.budget = budget
+        self.config = config
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        delegation = _delegation(runtime)
+        tried = runtime.memory.working.recent_actions(limit=state.frame.width * state.frame.height + 8)
+        exploration = state.metadata.get("exploration", {})
+        perception = state.metadata.get("perception", {})
+        result = delegation.delegate(
+            "plan",
+            {
+                "frame": state.frame,
+                "perception": perception,
+                "candidate_actions": exploration.get("competition_values", []) if isinstance(exploration, dict) else [],
+                "tried_actions": tried,
+            },
+            runtime.memory,
+            budget=self.budget,
+            config=self.config,
+        )
+        state.plan = result.output
+        state.metadata["planning"] = result.output
+        runtime.emit("plan.created", state.episode_id, {"step": state.step, "result": result.to_dict()})
+        return state
+
+
+class PlanDecisionStage:
+    name = "decision"
+
+    def __init__(self, *, fallback_to_agent: bool = True) -> None:
+        self.fallback_to_agent = fallback_to_agent
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        steps = state.plan.get("plan", []) if isinstance(state.plan, dict) else []
+        if steps:
+            action = Action.from_value(steps[0]["action"])
+            runtime.memory.add_note(f"Plan stage selected: {steps[0].get('reason', '')}")
+        elif self.fallback_to_agent:
+            action_span = runtime.trace.start_span("agent.choose_action", parent_id=runtime.root_span.span_id, metadata={"step": state.step, "source": "plan_fallback"})
+            action = runtime.agent.choose_action(runtime.memory.working.frames, state.frame, runtime.memory)
+            action_span.finish({"action": action.to_dict() if hasattr(action, "to_dict") else repr(action)})
+        else:
+            action = _fallback_untried_action(state, runtime)
+        if runtime.config.validate_actions:
+            validate_action(action, state.frame)
+        action = runtime.run_action_guardrails(state.step, state.frame, action)
+        state.proposed_action = action
+        runtime.emit("action.proposed", state.episode_id, {"step": state.step, "action": action.to_dict(), "source": "plan"})
         return state
 
 
@@ -300,6 +457,19 @@ def default_loop_stages() -> list[LoopStage]:
     ]
 
 
+def delegating_planner_loop_stages(*, delegation_config: DelegationConfig | None = None) -> list[LoopStage]:
+    return [
+        DoneCheckStage(),
+        PerceptionStage(config=delegation_config),
+        ExplorationStage(config=delegation_config),
+        PlanningStage(config=delegation_config),
+        PlanDecisionStage(),
+        PermissionStage(),
+        ActionExecutionStage(),
+        StopCheckStage(),
+    ]
+
+
 def _result_to_dict(result: EnvironmentResult | None) -> dict[str, Any] | None:
     if result is None:
         return None
@@ -309,3 +479,28 @@ def _result_to_dict(result: EnvironmentResult | None) -> dict[str, Any] | None:
         "done": result.done,
         "info": result.info,
     }
+
+
+def _delegation(runtime: LoopRuntime) -> DelegationManager:
+    if runtime.delegation is not None:
+        return runtime.delegation
+    agent_delegation = getattr(runtime.agent, "delegation", None)
+    if agent_delegation is not None:
+        return agent_delegation
+    runtime.delegation = DelegationManager.with_default_subagents()
+    return runtime.delegation
+
+
+def _fallback_untried_action(state: LoopState, runtime: LoopRuntime) -> Action:
+    tried = {_action_key(action) for action in runtime.memory.working.recent_actions(limit=state.frame.width * state.frame.height + 8)}
+    for y in range(state.frame.height):
+        for x in range(state.frame.width):
+            candidate = Action(ActionType.ACTION6, (x, y))
+            if _action_key(candidate) not in tried:
+                return candidate
+    return Action(ActionType.ACTION1)
+
+
+def _action_key(action: Action) -> tuple[str, tuple[int, int] | None]:
+    kind = action.kind.value if hasattr(action.kind, "value") else str(action.kind)
+    return kind, action.xy

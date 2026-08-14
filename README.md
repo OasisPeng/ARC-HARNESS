@@ -35,6 +35,7 @@ arc_harness/
   official.py      Optional official ARC-AGI-3 toolkit/environment adapter.
   official_eval.py Public official-game smoke runner.
   policy.py        Hook decisions: allow, rewrite, block.
+  recovery.py      Retry/replan/fallback/abort recovery decisions.
   sandbox.py       Bounded local subprocess sandbox provider.
   checkpoint.py    Latest-step checkpoint persistence.
   context.py       Budgeted context manager and injector.
@@ -374,6 +375,34 @@ result = thread.run_episode(env, agent, pipeline=pipeline)
 This is the seam for planner, subagent, sandbox, recovery, and context-building
 stages to participate in the loop directly.
 
+Recovery is also part of the pipeline. When a stage fails, `StagePipeline`
+emits `stage.failed`, asks a `RecoveryPolicy` for a decision, and then can retry
+the stage, clear the plan for replanning, inject a fallback action, abort the
+episode, or re-raise the error. The default policy recovers from invalid action
+selection with an untried fallback action, retries perception/exploration/
+planning stages once, and keeps guardrail failures as hard errors.
+
+ARC-style delegation can now be expressed as stages instead of being hidden
+inside one agent method:
+
+```python
+from arc_harness import StagePipeline, delegating_planner_loop_stages
+
+pipeline = StagePipeline(delegating_planner_loop_stages())
+result = thread.run_episode(env, agent, pipeline=pipeline)
+```
+
+That pipeline runs:
+
+```text
+done_check -> perception -> exploration -> planning -> decision -> permission -> action.execute -> stop_check
+```
+
+The perception/exploration/planning stages call the registered
+`DelegationManager`, save subagent results into `LoopState`, emit
+`perception.completed`, `exploration.completed`, and `plan.created`, and then
+`PlanDecisionStage` turns the best plan item into the real environment action.
+
 ## Capabilities And Sandbox
 
 Runtime providers can be registered behind a common capability/name seam:
@@ -567,6 +596,8 @@ This release is a harness foundation. It intentionally includes:
 - configurable episode running via `RunnerConfig`;
 - structured event streaming;
 - stage-based agent loop with insert/replace pipeline stages;
+- recovery policy for retry/replan/fallback/abort after stage failures;
+- planner stages for perception -> exploration -> planning -> decision;
 - action permission hooks;
 - hook matchers for event/action/status filtering;
 - guardrails for action/frame/result checks;

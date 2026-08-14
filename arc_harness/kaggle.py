@@ -41,6 +41,7 @@ CORE_PACKAGE_FILES = (
     "official_eval.py",
     "policy.py",
     "replay.py",
+    "recovery.py",
     "sandbox.py",
     "subagents.py",
     "submission.py",

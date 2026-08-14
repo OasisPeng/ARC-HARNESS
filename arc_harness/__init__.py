@@ -47,13 +47,18 @@ from .loop_stages import (
     BuildContextStage,
     DecisionStage,
     DoneCheckStage,
+    ExplorationStage,
     LoopRuntime,
     LoopStage,
     LoopState,
+    PerceptionStage,
     PermissionStage,
+    PlanDecisionStage,
+    PlanningStage,
     StagePipeline,
     StopCheckStage,
     default_loop_stages,
+    delegating_planner_loop_stages,
 )
 from .memory import DurableMemory, MemoryEntry, MemoryManager, WorkingMemory
 from .memory_policy import MemoryPolicy
@@ -82,6 +87,7 @@ from .official import (
 from .official_eval import OfficialSmokeReport, OfficialSmokeResult, OfficialSmokeRunner, discover_official_games
 from .policy import Decision, HookDecision
 from .replay import ReplayEpisode, ReplayStep
+from .recovery import DefaultRecoveryPolicy, NoRecoveryPolicy, RecoveryDecision, RecoveryKind, RecoveryPolicy
 from .sandbox import LocalSubprocessSandbox, Sandbox, SandboxCommand, SandboxError, SandboxPolicy, SandboxPolicyError, SandboxResult
 from .subagents import DiffSubAgent, ExplorerSubAgent, PerceptionSubAgent, PlannerSubAgent
 from .thread import ArcThread
@@ -113,6 +119,7 @@ __all__ = [
     "ContextSection",
     "DEFAULT_MODEL_REGISTRY",
     "DEFAULT_CAPABILITY_REGISTRY",
+    "DefaultRecoveryPolicy",
     "DecisionStage",
     "DoneCheckStage",
     "DurableMemory",
@@ -131,6 +138,7 @@ __all__ = [
     "EvalReport",
     "EvaluationRunner",
     "ExplorerSubAgent",
+    "ExplorationStage",
     "EpisodeResult",
     "EpisodeRunner",
     "Frame",
@@ -161,6 +169,7 @@ __all__ = [
     "ModelInput",
     "ModelOutput",
     "ModelRegistry",
+    "NoRecoveryPolicy",
     "LocalModel",
     "JsonPolicyModel",
     "OfficialArcEnvironment",
@@ -169,11 +178,17 @@ __all__ = [
     "OfficialSmokeResult",
     "OfficialSmokeRunner",
     "PerceptionSubAgent",
+    "PerceptionStage",
     "PermissionStage",
+    "PlanDecisionStage",
+    "PlanningStage",
     "PlannerSubAgent",
     "ProviderDescriptor",
     "ReplayEpisode",
     "ReplayStep",
+    "RecoveryDecision",
+    "RecoveryKind",
+    "RecoveryPolicy",
     "ReadinessCheck",
     "ResultGuardrail",
     "RuleLearningAgent",
@@ -207,6 +222,7 @@ __all__ = [
     "create_official_environment",
     "discover_official_games",
     "default_loop_stages",
+    "delegating_planner_loop_stages",
     "load_model_from_config",
     "make_default_capability_registry",
     "resolve_official_action",

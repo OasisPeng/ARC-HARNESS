@@ -17,6 +17,7 @@ from arc_harness import (
     ContextManager,
     CoordinateBoundsGuardrail,
     DEFAULT_CAPABILITY_REGISTRY,
+    DefaultRecoveryPolicy,
     KaggleReadinessReport,
     DelegatingPlannerAgent,
     DelegationConfig,
@@ -36,6 +37,7 @@ from arc_harness import (
     ModelBackedAgent,
     ModelInput,
     ModelOutput,
+    NoRecoveryPolicy,
     OfficialArcEnvironment,
     OfficialSmokeRunner,
     LocalSubprocessSandbox,
@@ -52,6 +54,7 @@ from arc_harness import (
     build_kaggle_package,
     build_submission_manifest,
     check_kaggle_readiness,
+    delegating_planner_loop_stages,
 )
 from arc_harness.adapters import KaggleAgentAdapter
 from arc_harness.models import load_model_from_config
@@ -133,6 +136,20 @@ class NoteStage:
         runtime.memory.add_note(f"custom stage at step {state.step}")
         state.metadata["custom_stage_seen"] = True
         runtime.emit("custom.stage", state.episode_id, {"step": state.step})
+        return state
+
+
+class FlakyPerceptionStage:
+    name = "perception"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, state: LoopState, runtime: LoopRuntime) -> LoopState:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("temporary perception miss")
+        runtime.memory.add_note("flaky perception recovered")
         return state
 
 
@@ -281,6 +298,31 @@ class HarnessTests(unittest.TestCase):
             self.assertIn("custom stage at step 0", thread.memory.working.notes)
             self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
 
+    def test_recovery_policy_retries_failed_stage(self) -> None:
+        stage = FlakyPerceptionStage()
+        pipeline = StagePipeline(recovery_policy=DefaultRecoveryPolicy(max_retries=1))
+        pipeline.insert_before("decision", stage)
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp, pipeline=pipeline)
+            events = list(thread.run_streamed(TinyEnv(), HeuristicAgent(), config=RunnerConfig(max_steps=4)))
+            self.assertGreaterEqual(stage.calls, 2)
+            self.assertIn("recovery.triggered", [event["type"] for event in events])
+            self.assertIn("flaky perception recovered", thread.memory.working.notes)
+            self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
+
+    def test_delegating_planner_pipeline_runs_perception_exploration_planning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            delegation = DelegationManager.with_default_subagents(config=DelegationConfig(parallel_workers=2))
+            pipeline = StagePipeline(delegating_planner_loop_stages(delegation_config=DelegationConfig(max_retries=1)))
+            thread = ArcThread(memory_dir=tmp, delegation=delegation, pipeline=pipeline)
+            events = list(thread.run_streamed(TinyEnv(), HeuristicAgent(), config=RunnerConfig(max_steps=4)))
+            event_types = [event["type"] for event in events]
+            self.assertIn("perception.completed", event_types)
+            self.assertIn("exploration.completed", event_types)
+            self.assertIn("plan.created", event_types)
+            self.assertEqual(events[-1]["payload"]["result"]["status"], "WIN")
+            self.assertGreaterEqual(len([event for event in thread.read_delegation_events() if event["type"] == "subtask.completed"]), 3)
+
     def test_action_budget_hook_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             thread = ArcThread(memory_dir=tmp, hooks=[ActionBudgetHook(0)])
@@ -368,9 +410,18 @@ class HarnessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RunnerConfig(max_steps=0)
 
-    def test_invalid_action_records_error_summary(self) -> None:
+    def test_invalid_action_recovers_with_fallback_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             thread = ArcThread(memory_dir=tmp)
+            events = list(thread.run_streamed(TinyEnv(), BadActionAgent(), config=RunnerConfig(max_steps=4, abort_on_error=False)))
+            result = events[-1]["payload"]["result"]
+            self.assertEqual(result["status"], "WIN")
+            self.assertIn("recovery.triggered", [event["type"] for event in events])
+            self.assertIn("fallback_action", [event["payload"]["decision"]["kind"] for event in events if event["type"] == "recovery.triggered"])
+
+    def test_no_recovery_policy_preserves_error_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            thread = ArcThread(memory_dir=tmp, pipeline=StagePipeline(recovery_policy=NoRecoveryPolicy()))
             result = thread.run_episode(TinyEnv(), BadActionAgent(), config=RunnerConfig(max_steps=4, abort_on_error=False))
             self.assertEqual(result.status, "ERROR")
             self.assertIn("error", result.summary)

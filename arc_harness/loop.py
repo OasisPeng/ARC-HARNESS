@@ -14,6 +14,7 @@ from .errors import ErrorContext
 from .events import AgentEvent
 from .guardrails import GuardrailDecision
 from .hooks import HookManager
+from .delegation import DelegationManager
 from .loop_stages import LoopRuntime, LoopState, StagePipeline
 from .memory import MemoryManager
 from .tracing import Trace, TraceStore
@@ -53,6 +54,7 @@ class EpisodeRunner:
         traces: TraceStore | None = None,
         guardrails: list | None = None,
         pipeline: StagePipeline | None = None,
+        delegation: DelegationManager | None = None,
     ) -> None:
         self.memory = memory
         self.hooks = hooks or HookManager()
@@ -60,6 +62,7 @@ class EpisodeRunner:
         self.traces = traces
         self.guardrails = list(guardrails or [])
         self.pipeline = pipeline or StagePipeline()
+        self.delegation = delegation
 
     def run(
         self,
@@ -126,6 +129,7 @@ class EpisodeRunner:
                 trace=trace,
                 root_span=root_span,
                 checkpoints=self.checkpoints,
+                delegation=self.delegation,
             )
 
             for step in range(run_config.max_steps):

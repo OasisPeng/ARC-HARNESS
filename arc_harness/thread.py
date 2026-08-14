@@ -105,6 +105,7 @@ class ArcThread:
             TraceStore(self.root / "traces", enabled=run_config.tracing),
             self.guardrails,
             pipeline=pipeline or self.pipeline,
+            delegation=self.delegation,
         )
         result = runner.run(env, agent, config=run_config)
         self.history.append(result.to_dict())
@@ -127,6 +128,7 @@ class ArcThread:
             TraceStore(self.root / "traces", enabled=run_config.tracing),
             self.guardrails,
             pipeline=pipeline or self.pipeline,
+            delegation=self.delegation,
         )
         completed: EpisodeResult | None = None
         event_dicts: list[dict] = []
